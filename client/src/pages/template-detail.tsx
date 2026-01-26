@@ -10,7 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { PageSkeleton, ListSkeleton } from "@/components/loading-skeleton";
 import { EmptyState } from "@/components/empty-state";
-import { ArrowLeft, Plus, Dumbbell, ChevronUp, ChevronDown, Trash2, Edit, Save, X } from "lucide-react";
+import { ArrowLeft, Plus, Dumbbell, ChevronUp, ChevronDown, Trash2, Edit, Save, X, Copy } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { WorkoutTemplate, WorkoutTemplateExercise, PlannedSet, Exercise } from "@shared/schema";
@@ -142,6 +142,29 @@ export default function TemplateDetail() {
     },
     onError: () => {
       toast({ title: "Failed to remove set", variant: "destructive" });
+    },
+  });
+
+  const duplicateSetMutation = useMutation({
+    mutationFn: async ({ templateExerciseId, set, newSetNumber }: { 
+      templateExerciseId: string; 
+      set: PlannedSet;
+      newSetNumber: number;
+    }) => {
+      const data: any = { setNumber: newSetNumber };
+      if (set.targetReps) data.targetReps = set.targetReps;
+      if (set.targetWeight) data.targetWeight = set.targetWeight;
+      if (set.targetTimeSeconds) data.targetTimeSeconds = set.targetTimeSeconds;
+      if (set.restSeconds) data.restSeconds = set.restSeconds;
+      data.isWarmup = set.isWarmup;
+      return await apiRequest("POST", `/api/templates/${templateId}/exercises/${templateExerciseId}/sets`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/templates", templateId] });
+      toast({ title: "Set duplicated" });
+    },
+    onError: () => {
+      toast({ title: "Failed to duplicate set", variant: "destructive" });
     },
   });
 
@@ -325,17 +348,34 @@ export default function TemplateDetail() {
                             {set.targetWeight && <span>{set.targetWeight} lbs</span>}
                             {set.targetTimeSeconds && <span>{set.targetTimeSeconds}s</span>}
                             {set.restSeconds && <span className="text-xs">Rest: {set.restSeconds}s</span>}
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-6 w-6"
-                              onClick={() => deleteSetMutation.mutate({ 
-                                templateExerciseId: templateExercise.id, 
-                                setId: set.id 
-                              })}
-                            >
-                              <X className="h-3 w-3" />
-                            </Button>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6"
+                                onClick={() => duplicateSetMutation.mutate({ 
+                                  templateExerciseId: templateExercise.id, 
+                                  set,
+                                  newSetNumber: (templateExercise.plannedSets?.length || 0) + 1
+                                })}
+                                disabled={duplicateSetMutation.isPending}
+                                data-testid={`button-duplicate-set-${set.id}`}
+                              >
+                                <Copy className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6"
+                                onClick={() => deleteSetMutation.mutate({ 
+                                  templateExerciseId: templateExercise.id, 
+                                  setId: set.id 
+                                })}
+                                data-testid={`button-delete-set-${set.id}`}
+                              >
+                                <X className="h-3 w-3" />
+                              </Button>
+                            </div>
                           </div>
                         </div>
                       ))}
