@@ -297,6 +297,17 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/schedule/range/:startDate/:endDate", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const schedule = await storage.getScheduleForRange(userId, req.params.startDate, req.params.endDate);
+      res.json(schedule);
+    } catch (error) {
+      console.error("Error fetching schedule range:", error);
+      res.status(500).json({ message: "Failed to fetch schedule range" });
+    }
+  });
+
   app.post("/api/schedule", isAuthenticated, async (req, res) => {
     try {
       const userId = getUserId(req);

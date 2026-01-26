@@ -9,12 +9,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { ListSkeleton } from "@/components/loading-skeleton";
 import { EmptyState } from "@/components/empty-state";
-import { Plus, Dumbbell, Calendar, ChevronRight, Edit, Trash2, Copy, MoreVertical, ListPlus } from "lucide-react";
+import { Plus, Dumbbell, Calendar, ChevronRight, ChevronLeft, Edit, Trash2, Copy, MoreVertical, ListPlus, CalendarDays } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Link, useLocation } from "wouter";
-import { format, addDays, startOfWeek, isSameDay } from "date-fns";
+import { format, addDays, addWeeks, subWeeks, startOfWeek, endOfWeek, isSameDay, isWithinInterval } from "date-fns";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { WorkoutTemplate, WorkoutScheduleItem, Exercise } from "@shared/schema";
@@ -36,16 +38,38 @@ export default function Plan() {
   const [newTemplateName, setNewTemplateName] = useState("");
   const [newTemplateNotes, setNewTemplateNotes] = useState("");
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [displayWeekStart, setDisplayWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [weeksToShow, setWeeksToShow] = useState(2);
 
-  const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
-  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  const getWeekDays = (weekStart: Date) => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  
+  const displayWeeks = Array.from({ length: weeksToShow }, (_, i) => ({
+    start: addWeeks(displayWeekStart, i),
+    days: getWeekDays(addWeeks(displayWeekStart, i)),
+  }));
+
+  const navigateWeek = (direction: "prev" | "next") => {
+    setDisplayWeekStart(prev => direction === "prev" ? subWeeks(prev, 1) : addWeeks(prev, 1));
+  };
+
+  const goToToday = () => {
+    setDisplayWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }));
+  };
+
+  const jumpToDate = (date: Date) => {
+    setDisplayWeekStart(startOfWeek(date, { weekStartsOn: 1 }));
+    setCalendarOpen(false);
+  };
 
   const { data: templates, isLoading: templatesLoading } = useQuery<TemplateWithExercises[]>({
     queryKey: ["/api/templates"],
   });
 
-  const { data: weekSchedule } = useQuery<ScheduleWithTemplate[]>({
-    queryKey: ["/api/schedule/week", format(weekStart, "yyyy-MM-dd")],
+  const displayEndDate = addDays(displayWeekStart, weeksToShow * 7 - 1);
+  
+  const { data: scheduleData } = useQuery<ScheduleWithTemplate[]>({
+    queryKey: ["/api/schedule/range", format(displayWeekStart, "yyyy-MM-dd"), format(displayEndDate, "yyyy-MM-dd")],
   });
 
   const { data: exercises } = useQuery<Exercise[]>({
@@ -54,9 +78,9 @@ export default function Plan() {
 
   const createTemplateMutation = useMutation({
     mutationFn: async (data: { name: string; notes?: string }) => {
-      return await apiRequest("POST", "/api/templates", data);
+      return await apiRequest<WorkoutTemplate>("POST", "/api/templates", data);
     },
-    onSuccess: (template: WorkoutTemplate) => {
+    onSuccess: (template) => {
       queryClient.invalidateQueries({ queryKey: ["/api/templates"] });
       setNewTemplateOpen(false);
       setNewTemplateName("");
@@ -111,7 +135,7 @@ export default function Plan() {
   });
 
   const getScheduleForDay = (date: Date) => {
-    return weekSchedule?.filter(s => s.scheduledDate === format(date, "yyyy-MM-dd")) || [];
+    return scheduleData?.filter(s => s.scheduledDate === format(date, "yyyy-MM-dd")) || [];
   };
 
   const handleSchedule = () => {
@@ -272,43 +296,97 @@ export default function Plan() {
           </TabsContent>
 
           <TabsContent value="schedule" className="space-y-4">
-            <div className="grid grid-cols-7 gap-1">
-              {weekDays.map((day) => {
-                const isToday = isSameDay(day, new Date());
-                const daySchedule = getScheduleForDay(day);
-                
-                return (
-                  <button
-                    key={day.toISOString()}
-                    onClick={() => {
-                      setSelectedDate(day);
-                      if (!selectedTemplateId && templates?.length) {
-                        setScheduleOpen(true);
-                      }
-                    }}
-                    className={`flex flex-col items-center p-2 rounded-lg transition-colors ${
-                      isToday 
-                        ? "bg-primary text-primary-foreground" 
-                        : "hover:bg-muted"
-                    }`}
-                    data-testid={`button-day-${format(day, "yyyy-MM-dd")}`}
-                  >
-                    <span className="text-xs font-medium">{format(day, "EEE")}</span>
-                    <span className={`text-lg font-semibold ${isToday ? "" : ""}`}>
-                      {format(day, "d")}
-                    </span>
-                    {daySchedule.length > 0 && (
-                      <div className={`w-1.5 h-1.5 rounded-full mt-1 ${
-                        isToday ? "bg-primary-foreground" : "bg-primary"
-                      }`} />
-                    )}
-                  </button>
-                );
-              })}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1">
+                <Button variant="outline" size="icon" onClick={() => navigateWeek("prev")} data-testid="button-prev-week">
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Button variant="outline" size="icon" onClick={() => navigateWeek("next")} data-testid="button-next-week">
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+                <Button variant="ghost" size="sm" onClick={goToToday} data-testid="button-today">
+                  Today
+                </Button>
+              </div>
+              <div className="flex items-center gap-2">
+                <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" size="sm" data-testid="button-pick-date">
+                      <CalendarDays className="h-4 w-4 mr-1" />
+                      {format(displayWeekStart, "MMM d")} - {format(displayEndDate, "MMM d, yyyy")}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="end">
+                    <CalendarComponent
+                      mode="single"
+                      selected={displayWeekStart}
+                      onSelect={(date) => date && jumpToDate(date)}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+                <select
+                  value={weeksToShow}
+                  onChange={(e) => setWeeksToShow(Number(e.target.value))}
+                  className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                  data-testid="select-weeks"
+                >
+                  <option value={1}>1 week</option>
+                  <option value={2}>2 weeks</option>
+                  <option value={4}>4 weeks</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              {displayWeeks.map((week, weekIndex) => (
+                <div key={week.start.toISOString()} className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    {format(week.start, "MMM d")} - {format(addDays(week.start, 6), "MMM d, yyyy")}
+                  </p>
+                  <div className="grid grid-cols-7 gap-1">
+                    {week.days.map((day) => {
+                      const isToday = isSameDay(day, new Date());
+                      const daySchedule = getScheduleForDay(day);
+                      const isPast = day < new Date() && !isToday;
+                      
+                      return (
+                        <button
+                          key={day.toISOString()}
+                          onClick={() => {
+                            setSelectedDate(day);
+                            if (templates?.length) {
+                              setScheduleOpen(true);
+                            }
+                          }}
+                          className={`flex flex-col items-center p-2 rounded-lg transition-colors ${
+                            isToday 
+                              ? "bg-primary text-primary-foreground" 
+                              : isPast
+                              ? "text-muted-foreground hover:bg-muted"
+                              : "hover:bg-muted"
+                          }`}
+                          data-testid={`button-day-${format(day, "yyyy-MM-dd")}`}
+                        >
+                          <span className="text-xs font-medium">{format(day, "EEE")}</span>
+                          <span className="text-lg font-semibold">
+                            {format(day, "d")}
+                          </span>
+                          {daySchedule.length > 0 && (
+                            <div className={`w-1.5 h-1.5 rounded-full mt-1 ${
+                              isToday ? "bg-primary-foreground" : "bg-primary"
+                            }`} />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
 
             <div className="space-y-3">
-              {weekDays.map((day) => {
+              {displayWeeks.flatMap(week => week.days).map((day) => {
                 const daySchedule = getScheduleForDay(day);
                 if (daySchedule.length === 0) return null;
 
@@ -340,14 +418,14 @@ export default function Plan() {
         </Tabs>
 
         <Dialog open={scheduleOpen} onOpenChange={setScheduleOpen}>
-          <DialogContent>
+          <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle>Schedule Workout</DialogTitle>
             </DialogHeader>
             <div className="space-y-4 pt-4">
               <div className="space-y-2">
                 <Label>Template</Label>
-                <div className="grid gap-2">
+                <div className="grid gap-2 max-h-40 overflow-y-auto">
                   {templates?.map((template) => (
                     <button
                       key={template.id}
@@ -366,26 +444,20 @@ export default function Plan() {
               </div>
               <div className="space-y-2">
                 <Label>Date</Label>
-                <div className="grid grid-cols-7 gap-1">
-                  {weekDays.map((day) => {
-                    const isSelected = selectedDate && isSameDay(day, selectedDate);
-                    return (
-                      <button
-                        key={day.toISOString()}
-                        onClick={() => setSelectedDate(day)}
-                        className={`p-2 rounded-lg text-center transition-colors ${
-                          isSelected
-                            ? "bg-primary text-primary-foreground"
-                            : "hover:bg-muted"
-                        }`}
-                      >
-                        <span className="text-xs">{format(day, "EEE")}</span>
-                        <br />
-                        <span className="font-semibold">{format(day, "d")}</span>
-                      </button>
-                    );
-                  })}
+                <div className="flex justify-center">
+                  <CalendarComponent
+                    mode="single"
+                    selected={selectedDate || undefined}
+                    onSelect={(date) => setSelectedDate(date || null)}
+                    className="rounded-md border"
+                    data-testid="calendar-schedule"
+                  />
                 </div>
+                {selectedDate && (
+                  <p className="text-sm text-center text-muted-foreground">
+                    Selected: {format(selectedDate, "EEEE, MMMM d, yyyy")}
+                  </p>
+                )}
               </div>
               <Button 
                 className="w-full" 

@@ -45,6 +45,7 @@ export interface IStorage {
   // Schedule
   getScheduleForDate(userId: string, date: string): Promise<any[]>;
   getScheduleForWeek(userId: string, startDate: string): Promise<any[]>;
+  getScheduleForRange(userId: string, startDate: string, endDate: string): Promise<any[]>;
   createSchedule(data: InsertWorkoutSchedule): Promise<WorkoutScheduleItem>;
   updateScheduleStatus(userId: string, id: string, status: string): Promise<void>;
   
@@ -234,6 +235,21 @@ export class DatabaseStorage implements IStorage {
         eq(workoutSchedule.userId, userId),
         gte(workoutSchedule.scheduledDate, startDate),
         lte(workoutSchedule.scheduledDate, endDate.toISOString().split('T')[0])
+      )
+    );
+
+    return Promise.all(schedules.map(async (s) => {
+      const [template] = await db.select().from(workoutTemplates).where(eq(workoutTemplates.id, s.templateId));
+      return { ...s, template };
+    }));
+  }
+
+  async getScheduleForRange(userId: string, startDate: string, endDate: string): Promise<any[]> {
+    const schedules = await db.select().from(workoutSchedule).where(
+      and(
+        eq(workoutSchedule.userId, userId),
+        gte(workoutSchedule.scheduledDate, startDate),
+        lte(workoutSchedule.scheduledDate, endDate)
       )
     );
 
