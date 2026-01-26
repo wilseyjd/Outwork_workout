@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { setupAuth, isAuthenticated, registerAuthRoutes } from "./replit_integrations/auth";
+import { setupAuth, isAuthenticated, getUserId } from "./auth";
 import { z, ZodSchema } from "zod";
 import {
   insertExerciseSchema,
@@ -30,12 +30,6 @@ export async function registerRoutes(
 ): Promise<Server> {
   // Setup authentication first
   await setupAuth(app);
-  registerAuthRoutes(app);
-
-  // Helper to get user ID from request
-  const getUserId = (req: any): string => {
-    return req.user?.claims?.sub;
-  };
 
   // ============================================
   // EXERCISES
