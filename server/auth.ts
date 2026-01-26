@@ -29,6 +29,7 @@ export function getSession() {
     cookie: {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
       maxAge: sessionTtl,
     },
   });
@@ -64,10 +65,21 @@ export async function setupAuth(app: Express) {
         lastName: lastName || null,
       }).returning();
 
-      req.session.userId = newUser.id;
-      
-      const { password: _, ...userWithoutPassword } = newUser;
-      res.status(201).json(userWithoutPassword);
+      req.session.regenerate((err) => {
+        if (err) {
+          console.error("Session regeneration error:", err);
+          return res.status(500).json({ message: "Failed to create session" });
+        }
+        req.session.userId = newUser.id;
+        req.session.save((err) => {
+          if (err) {
+            console.error("Session save error:", err);
+            return res.status(500).json({ message: "Failed to save session" });
+          }
+          const { password: _, ...userWithoutPassword } = newUser;
+          res.status(201).json(userWithoutPassword);
+        });
+      });
     } catch (error) {
       console.error("Signup error:", error);
       res.status(500).json({ message: "Failed to create account" });
@@ -94,10 +106,21 @@ export async function setupAuth(app: Express) {
         return res.status(401).json({ message: "Invalid email or password" });
       }
 
-      req.session.userId = user.id;
-      
-      const { password: _, ...userWithoutPassword } = user;
-      res.json(userWithoutPassword);
+      req.session.regenerate((err) => {
+        if (err) {
+          console.error("Session regeneration error:", err);
+          return res.status(500).json({ message: "Failed to create session" });
+        }
+        req.session.userId = user.id;
+        req.session.save((err) => {
+          if (err) {
+            console.error("Session save error:", err);
+            return res.status(500).json({ message: "Failed to save session" });
+          }
+          const { password: _, ...userWithoutPassword } = user;
+          res.json(userWithoutPassword);
+        });
+      });
     } catch (error) {
       console.error("Login error:", error);
       res.status(500).json({ message: "Failed to login" });

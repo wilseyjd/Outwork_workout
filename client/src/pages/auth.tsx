@@ -27,7 +27,7 @@ export default function Auth() {
     e.preventDefault();
     try {
       await login(loginData);
-      navigate("/today");
+      navigate("/");
     } catch (error: any) {
       toast({ 
         title: "Login failed", 
@@ -64,7 +64,7 @@ export default function Auth() {
         firstName: signupData.firstName || undefined,
         lastName: signupData.lastName || undefined,
       });
-      navigate("/today");
+      navigate("/");
     } catch (error: any) {
       toast({ 
         title: "Signup failed", 
