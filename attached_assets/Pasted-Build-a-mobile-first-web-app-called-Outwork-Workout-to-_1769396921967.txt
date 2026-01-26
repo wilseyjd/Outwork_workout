@@ -1,0 +1,190 @@
+Build a mobile-first web app called Outwork — Workout to plan and track workouts and supplements. Use the attached files as the source of truth:
+
+Outwork_Workout_PRD_FINAL.md (PRD)
+
+Outwork_Supabase_Model_v1.md (data model)
+
+Tech stack requirements
+
+Frontend: React (prefer Next.js App Router if supported; otherwise React + Vite is fine)
+
+Backend/DB: Supabase (Postgres + Auth + Storage)
+
+Styling: Tailwind (preferred) or simple CSS modules
+
+Mobile-first UX: optimized for phone usage, quick logging, large tap targets
+
+Privacy-first: no social features
+
+Core product concept
+
+Implement the distinction between:
+
+Planned Workouts = workout templates with planned exercises + planned sets (targets)
+
+Performed Workouts = workout sessions created when a user starts a workout; sessions store actual sets performed
+
+Must-have MVP features
+Authentication
+
+Supabase email/password login
+
+Require auth for all app pages (redirect to login)
+
+Exercises (Exercise Bank)
+
+List exercises
+
+Create / edit / delete exercise
+
+Simple search/filter by name
+
+Store per the model (name, category optional, notes optional)
+
+Workout Templates (Planner)
+
+List templates
+
+Create / edit / delete templates
+
+Add exercises to a template (ordered)
+
+For each exercise in a template, define planned sets:
+
+target reps (optional)
+
+target weight (optional, lbs)
+
+target time seconds (optional)
+
+rest seconds (optional)
+
+is_warmup flag
+
+Schedule
+
+Schedule a template to a day (simple calendar/list view for the week)
+
+Mark schedule status: planned / completed / skipped
+
+Workout Session (Execution / Logging)
+
+“Today” screen shows today’s scheduled workout(s)
+
+Start workout → creates a workout session and copies exercises into session_exercises
+
+During workout:
+
+For each exercise, log performed sets (actual weight/reps/time, rest, warmup)
+
+Quick add set button
+
+Editable after saving
+
+Notes field for the session
+
+Save/end session and mark linked schedule item as completed
+
+History + Progress (Basic)
+
+Workout history list (sessions)
+
+“What did I lift last time?” per exercise:
+
+On exercise detail screen show most recent performed sets for that exercise
+
+Basic trend view is optional for v1, but “last time” is required
+
+Supplements
+
+CRUD supplements
+
+Create supplement schedule (daily/weekly/custom simplified)
+
+Log supplement intake
+
+View supplement log history
+
+Body Weight
+
+Log body weight entries
+
+View weight history list
+
+Attachments (optional for v1, but scaffold)
+
+Use Supabase Storage and attachments table to support images tied to workout sessions
+
+If full UI is too much, at least implement the backend helper and a placeholder UI
+
+Data & Supabase integration requirements
+
+Follow the schema from Outwork_Supabase_Model_v1.md
+
+Use Row Level Security (RLS) patterns described (user_id = auth.uid())
+
+Include a supabaseClient setup and environment variable guidance:
+
+NEXT_PUBLIC_SUPABASE_URL
+
+NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+Provide a seed option or simple “Create sample exercises/templates” helper button (optional but helpful)
+
+UI requirements (keep it simple but clean)
+
+Mobile-first layout with bottom navigation:
+
+Today
+
+Plan
+
+History
+
+Supplements
+
+Settings
+
+Use a consistent card layout for workouts/exercises
+
+Keep flows fast:
+
+minimal modals
+
+inline editing for sets if possible
+
+Deliverables
+
+Working app with the screens and flows above
+
+Clear README:
+
+how to set Supabase env vars
+
+how to run locally in Replit
+
+how to apply database schema (SQL migration file or instructions)
+
+Provide a supabase_migration.sql file that creates tables, indexes, enums (if used), and basic RLS policies aligned to the model
+
+Build plan (do this in steps)
+
+Scaffold app + auth + protected routes
+
+Implement Exercise Bank CRUD
+
+Implement Template builder + planned sets
+
+Implement Scheduling
+
+Implement Session logging flow (start → log sets → save/end)
+
+Implement History + “last time”
+
+Implement Supplements + logging
+
+Implement Body weight logs
+
+Add polish + error states + loading states
+
+If something in the PRD conflicts with the model, ask me which to follow. Otherwise, proceed using the PRD as product truth and the model as database truth.
