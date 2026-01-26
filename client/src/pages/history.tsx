@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { ListSkeleton } from "@/components/loading-skeleton";
 import { EmptyState } from "@/components/empty-state";
 import { Button } from "@/components/ui/button";
-import { History as HistoryIcon, Dumbbell, Clock, ChevronRight, BarChart3 } from "lucide-react";
+import { History as HistoryIcon, Dumbbell, Clock, ChevronRight, BarChart3, Download } from "lucide-react";
 import { Link } from "wouter";
 import { format, formatDistanceToNow } from "date-fns";
 import type { WorkoutSession, WorkoutTemplate } from "@shared/schema";
@@ -20,6 +20,41 @@ export default function History() {
   const { data: sessions, isLoading } = useQuery<SessionWithTemplate[]>({
     queryKey: ["/api/sessions"],
   });
+
+  const downloadCSV = () => {
+    if (!sessions || sessions.length === 0) return;
+    
+    const headers = ["Date", "Time", "Workout", "Duration (min)", "Exercises", "Sets"];
+    const rows = sessions.map(session => {
+      const start = new Date(session.startedAt);
+      let duration = "";
+      if (session.endedAt) {
+        const end = new Date(session.endedAt);
+        duration = Math.round((end.getTime() - start.getTime()) / 60000).toString();
+      }
+      return [
+        format(start, "yyyy-MM-dd"),
+        format(start, "HH:mm"),
+        session.template?.name || "Ad-hoc Workout",
+        duration,
+        session.exerciseCount?.toString() || "",
+        session.setCount?.toString() || ""
+      ];
+    });
+    
+    const csvContent = [
+      headers.join(","),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(","))
+    ].join("\n");
+    
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `workout-history-${format(new Date(), "yyyy-MM-dd")}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   const formatDuration = (session: SessionWithTemplate) => {
     if (!session.endedAt) return "In progress";
@@ -40,12 +75,24 @@ export default function History() {
             <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">History</h1>
             <p className="text-muted-foreground text-sm mt-1">Past workout sessions</p>
           </div>
-          <Link href="/analytics">
-            <Button variant="outline" size="sm" data-testid="button-analytics">
-              <BarChart3 className="h-4 w-4 mr-2" />
-              Analytics
+          <div className="flex items-center gap-2">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={downloadCSV}
+              disabled={!sessions || sessions.length === 0}
+              data-testid="button-download"
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Export
             </Button>
-          </Link>
+            <Link href="/analytics">
+              <Button variant="outline" size="sm" data-testid="button-analytics">
+                <BarChart3 className="h-4 w-4 mr-2" />
+                Analytics
+              </Button>
+            </Link>
+          </div>
         </div>
 
         {isLoading ? (
