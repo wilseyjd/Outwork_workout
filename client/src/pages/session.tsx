@@ -58,14 +58,17 @@ export default function Session() {
   const { data: session, isLoading } = useQuery<SessionWithDetails>({
     queryKey: ["/api/sessions", sessionId],
     enabled: !isNew && !!sessionId,
-    refetchInterval: session?.endedAt ? false : 10000,
+    refetchInterval: (query) => {
+      const data = query.state.data as SessionWithDetails | undefined;
+      return data?.endedAt ? false : 10000;
+    },
   });
 
   const createAdHocMutation = useMutation({
     mutationFn: async () => {
-      return await apiRequest("POST", "/api/sessions/adhoc");
+      return await apiRequest<WorkoutSession>("POST", "/api/sessions/adhoc");
     },
-    onSuccess: (data: WorkoutSession) => {
+    onSuccess: (data) => {
       navigate(`/session/${data.id}`, { replace: true });
     },
     onError: () => {
