@@ -5,7 +5,9 @@ import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ListSkeleton } from "@/components/loading-skeleton";
 import { EmptyState } from "@/components/empty-state";
-import { BarChart3, TrendingUp, Timer, Weight, Dumbbell } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ArrowLeft, BarChart3, TrendingUp, Timer, Weight, Dumbbell } from "lucide-react";
+import { Link } from "wouter";
 import { format, parseISO } from "date-fns";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import type { Exercise } from "@shared/schema";
@@ -157,9 +159,16 @@ export default function Analytics() {
   return (
     <AppLayout>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">Analytics</h1>
-          <p className="text-muted-foreground text-sm mt-1">Track your exercise progress over time</p>
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="icon" asChild>
+            <Link href="/history" data-testid="button-back">
+              <ArrowLeft className="h-5 w-5" />
+            </Link>
+          </Button>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">Analytics</h1>
+            <p className="text-muted-foreground text-sm mt-1">Track your exercise progress over time</p>
+          </div>
         </div>
 
         <div className="space-y-4">
