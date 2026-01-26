@@ -2,12 +2,12 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AppLayout } from "@/components/app-layout";
 import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ListSkeleton } from "@/components/loading-skeleton";
 import { EmptyState } from "@/components/empty-state";
 import { BarChart3, TrendingUp, Timer, Weight, Dumbbell } from "lucide-react";
 import { format, parseISO } from "date-fns";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import type { Exercise } from "@shared/schema";
 
 interface AnalyticsData {
@@ -56,44 +56,74 @@ function MetricCard({
 function ProgressChart({ data, metric }: { data: AnalyticsData[]; metric: "weight" | "effort" | "time" }) {
   if (data.length === 0) return null;
 
-  const getValue = (d: AnalyticsData) => {
-    switch (metric) {
-      case "weight": return d.maxWeight || 0;
-      case "effort": return d.totalEffort || 0;
-      case "time": return d.bestTime || 0;
-    }
-  };
+  const chartData = data.slice(-20).map(d => ({
+    date: format(parseISO(d.date), "MMM d"),
+    value: metric === "weight" ? (d.maxWeight || 0) : 
+           metric === "effort" ? (d.totalEffort || 0) : 
+           (d.bestTime || 0),
+    rawValue: metric === "weight" ? d.maxWeight : 
+              metric === "effort" ? d.totalEffort : 
+              d.bestTime,
+  })).filter(d => d.value > 0);
 
-  const values = data.map(getValue);
-  const maxValue = Math.max(...values, 1);
-  const minValue = Math.min(...values);
+  if (chartData.length === 0) return null;
+
+  const title = metric === "weight" ? "Max Weight" : 
+                metric === "effort" ? "Total Effort" : 
+                "Best Time";
+  
+  const unit = metric === "weight" ? " lbs" : 
+               metric === "effort" ? "" : 
+               "s";
+
+  const formatTooltip = (value: number) => {
+    if (metric === "time") return formatTime(value);
+    if (metric === "effort") return value.toLocaleString();
+    return `${value} lbs`;
+  };
 
   return (
     <Card className="p-4">
-      <h3 className="font-medium mb-4">
-        {metric === "weight" ? "Max Weight" : metric === "effort" ? "Total Effort" : "Best Time"} Over Time
-      </h3>
-      <div className="space-y-2">
-        {data.slice(-10).map((d, i) => {
-          const value = getValue(d);
-          const percentage = maxValue > 0 ? (value / maxValue) * 100 : 0;
-          return (
-            <div key={d.date} className="flex items-center gap-3">
-              <span className="text-xs text-muted-foreground w-16 flex-shrink-0">
-                {format(parseISO(d.date), "MMM d")}
-              </span>
-              <div className="flex-1 h-6 bg-muted rounded-md overflow-hidden">
-                <div 
-                  className="h-full bg-primary rounded-md transition-all"
-                  style={{ width: `${Math.max(percentage, 5)}%` }}
-                />
-              </div>
-              <span className="text-sm font-medium w-16 text-right">
-                {metric === "time" ? formatTime(value) : metric === "effort" ? value.toLocaleString() : `${value} lbs`}
-              </span>
-            </div>
-          );
-        })}
+      <h3 className="font-medium mb-4">{title} Over Time</h3>
+      <div className="h-64 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+            <XAxis 
+              dataKey="date" 
+              tick={{ fontSize: 12 }} 
+              className="text-muted-foreground"
+              tickLine={false}
+              axisLine={false}
+            />
+            <YAxis 
+              tick={{ fontSize: 12 }} 
+              className="text-muted-foreground"
+              tickLine={false}
+              axisLine={false}
+              width={50}
+              tickFormatter={(val) => metric === "time" ? `${val}s` : val.toLocaleString()}
+            />
+            <Tooltip 
+              formatter={(value: number) => [formatTooltip(value), title]}
+              contentStyle={{ 
+                backgroundColor: "hsl(var(--card))", 
+                border: "1px solid hsl(var(--border))",
+                borderRadius: "8px",
+                fontSize: "14px"
+              }}
+              labelStyle={{ color: "hsl(var(--muted-foreground))" }}
+            />
+            <Line 
+              type="monotone" 
+              dataKey="value" 
+              stroke="hsl(var(--primary))" 
+              strokeWidth={2}
+              dot={{ fill: "hsl(var(--primary))", strokeWidth: 0, r: 4 }}
+              activeDot={{ r: 6, fill: "hsl(var(--primary))" }}
+            />
+          </LineChart>
+        </ResponsiveContainer>
       </div>
     </Card>
   );
