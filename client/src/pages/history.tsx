@@ -4,7 +4,8 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ListSkeleton } from "@/components/loading-skeleton";
 import { EmptyState } from "@/components/empty-state";
-import { History as HistoryIcon, Dumbbell, Clock, ChevronRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { History as HistoryIcon, Dumbbell, Clock, ChevronRight, BarChart3 } from "lucide-react";
 import { Link } from "wouter";
 import { format, formatDistanceToNow } from "date-fns";
 import type { WorkoutSession, WorkoutTemplate } from "@shared/schema";
@@ -34,9 +35,17 @@ export default function History() {
   return (
     <AppLayout>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">History</h1>
-          <p className="text-muted-foreground text-sm mt-1">Past workout sessions</p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">History</h1>
+            <p className="text-muted-foreground text-sm mt-1">Past workout sessions</p>
+          </div>
+          <Link href="/analytics">
+            <Button variant="outline" size="sm" data-testid="button-analytics">
+              <BarChart3 className="h-4 w-4 mr-2" />
+              Analytics
+            </Button>
+          </Link>
         </div>
 
         {isLoading ? (

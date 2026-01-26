@@ -84,6 +84,15 @@ export interface IStorage {
   // Body Weight
   getWeightLogs(userId: string): Promise<BodyWeightLog[]>;
   logWeight(data: InsertBodyWeightLog): Promise<BodyWeightLog>;
+  
+  // Analytics
+  getExerciseAnalytics(userId: string, exerciseId: string): Promise<{
+    date: string;
+    maxWeight: number | null;
+    totalEffort: number | null;
+    bestTime: number | null;
+    totalSets: number;
+  }[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -508,6 +517,41 @@ export class DatabaseStorage implements IStorage {
   async logWeight(data: InsertBodyWeightLog): Promise<BodyWeightLog> {
     const [log] = await db.insert(bodyWeightLogs).values(data).returning();
     return log;
+  }
+
+  // Analytics
+  async getExerciseAnalytics(userId: string, exerciseId: string): Promise<{
+    date: string;
+    maxWeight: number | null;
+    totalEffort: number | null;
+    bestTime: number | null;
+    totalSets: number;
+  }[]> {
+    const results = await db.select({
+      date: sql<string>`DATE(${workoutSessions.startedAt})`.as('date'),
+      maxWeight: sql<number>`MAX(${performedSets.actualWeight}::numeric)`.as('max_weight'),
+      totalEffort: sql<number>`SUM(COALESCE(${performedSets.actualReps}, 0) * COALESCE(${performedSets.actualWeight}::numeric, 0))`.as('total_effort'),
+      bestTime: sql<number>`MIN(${performedSets.actualTimeSeconds})`.as('best_time'),
+      totalSets: sql<number>`COUNT(${performedSets.id})`.as('total_sets'),
+    })
+    .from(performedSets)
+    .innerJoin(sessionExercises, eq(performedSets.sessionExerciseId, sessionExercises.id))
+    .innerJoin(workoutSessions, eq(sessionExercises.sessionId, workoutSessions.id))
+    .where(and(
+      eq(performedSets.userId, userId),
+      eq(sessionExercises.exerciseId, exerciseId),
+      eq(performedSets.isWarmup, false)
+    ))
+    .groupBy(sql`DATE(${workoutSessions.startedAt})`)
+    .orderBy(sql`DATE(${workoutSessions.startedAt})`);
+    
+    return results.map(r => ({
+      date: r.date,
+      maxWeight: r.maxWeight ? Number(r.maxWeight) : null,
+      totalEffort: r.totalEffort ? Number(r.totalEffort) : null,
+      bestTime: r.bestTime ? Number(r.bestTime) : null,
+      totalSets: Number(r.totalSets),
+    }));
   }
 }
 

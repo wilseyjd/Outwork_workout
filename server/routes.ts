@@ -588,5 +588,21 @@ export async function registerRoutes(
     }
   });
 
+  // ============================================
+  // ANALYTICS
+  // ============================================
+
+  app.get("/api/analytics/exercise/:id", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const { id } = req.params;
+      const analytics = await storage.getExerciseAnalytics(userId, id);
+      res.json(analytics);
+    } catch (error) {
+      console.error("Error fetching exercise analytics:", error);
+      res.status(500).json({ message: "Failed to fetch exercise analytics" });
+    }
+  });
+
   return httpServer;
 }

@@ -19,6 +19,7 @@ import TemplateDetail from "@/pages/template-detail";
 import ExerciseDetail from "@/pages/exercise-detail";
 import Session from "@/pages/session";
 import SessionView from "@/pages/session-view";
+import Analytics from "@/pages/analytics";
 import NotFound from "@/pages/not-found";
 
 function LoadingSkeleton() {
@@ -59,6 +60,7 @@ function AuthenticatedRoutes() {
       <Route path="/template/:id" component={TemplateDetail} />
       <Route path="/session/:id" component={Session} />
       <Route path="/session/:id/view" component={SessionView} />
+      <Route path="/analytics" component={Analytics} />
       <Route component={NotFound} />
     </Switch>
   );
