@@ -10,7 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { PageSkeleton, ListSkeleton } from "@/components/loading-skeleton";
 import { EmptyState } from "@/components/empty-state";
-import { ArrowLeft, Plus, Dumbbell, GripVertical, Trash2, Edit, Save, X } from "lucide-react";
+import { ArrowLeft, Plus, Dumbbell, ChevronUp, ChevronDown, Trash2, Edit, Save, X } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { WorkoutTemplate, WorkoutTemplateExercise, PlannedSet, Exercise } from "@shared/schema";
@@ -84,6 +84,29 @@ export default function TemplateDetail() {
       toast({ title: "Failed to remove exercise", variant: "destructive" });
     },
   });
+
+  const reorderMutation = useMutation({
+    mutationFn: async (exerciseIds: string[]) => {
+      await apiRequest("PATCH", `/api/templates/${templateId}/exercises/reorder`, { exerciseIds });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/templates", templateId] });
+    },
+    onError: () => {
+      toast({ title: "Failed to reorder exercises", variant: "destructive" });
+    },
+  });
+
+  const moveExercise = (index: number, direction: "up" | "down") => {
+    if (!template?.exercises) return;
+    const exercises = [...template.exercises];
+    const newIndex = direction === "up" ? index - 1 : index + 1;
+    if (newIndex < 0 || newIndex >= exercises.length) return;
+    
+    [exercises[index], exercises[newIndex]] = [exercises[newIndex], exercises[index]];
+    const exerciseIds = exercises.map(e => e.id);
+    reorderMutation.mutate(exerciseIds);
+  };
 
   const addSetMutation = useMutation({
     mutationFn: async ({ templateExerciseId, data }: { 
@@ -239,6 +262,28 @@ export default function TemplateDetail() {
               <Card key={templateExercise.id} className="p-4" data-testid={`card-exercise-${templateExercise.id}`}>
                 <div className="flex items-start justify-between gap-3 mb-3">
                   <div className="flex items-center gap-2">
+                    <div className="flex flex-col gap-0.5">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6"
+                        disabled={index === 0 || reorderMutation.isPending}
+                        onClick={() => moveExercise(index, "up")}
+                        data-testid={`button-move-up-${templateExercise.id}`}
+                      >
+                        <ChevronUp className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6"
+                        disabled={index === (template.exercises?.length || 1) - 1 || reorderMutation.isPending}
+                        onClick={() => moveExercise(index, "down")}
+                        data-testid={`button-move-down-${templateExercise.id}`}
+                      >
+                        <ChevronDown className="h-4 w-4" />
+                      </Button>
+                    </div>
                     <div className="w-8 h-8 rounded bg-primary/10 flex items-center justify-center text-primary font-semibold text-sm">
                       {index + 1}
                     </div>

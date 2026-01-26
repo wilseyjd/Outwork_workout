@@ -37,6 +37,7 @@ export interface IStorage {
   // Template Exercises
   addTemplateExercise(data: InsertWorkoutTemplateExercise): Promise<WorkoutTemplateExercise>;
   removeTemplateExercise(userId: string, templateId: string, id: string): Promise<void>;
+  reorderTemplateExercises(userId: string, templateId: string, exerciseIds: string[]): Promise<void>;
   
   // Planned Sets
   addPlannedSet(data: InsertPlannedSet): Promise<PlannedSet>;
@@ -204,6 +205,20 @@ export class DatabaseStorage implements IStorage {
   async removeTemplateExercise(userId: string, templateId: string, id: string): Promise<void> {
     await db.delete(plannedSets).where(eq(plannedSets.templateExerciseId, id));
     await db.delete(workoutTemplateExercises).where(and(eq(workoutTemplateExercises.id, id), eq(workoutTemplateExercises.userId, userId)));
+  }
+
+  async reorderTemplateExercises(userId: string, templateId: string, exerciseIds: string[]): Promise<void> {
+    for (let i = 0; i < exerciseIds.length; i++) {
+      await db.update(workoutTemplateExercises)
+        .set({ position: i + 1 })
+        .where(
+          and(
+            eq(workoutTemplateExercises.id, exerciseIds[i]),
+            eq(workoutTemplateExercises.userId, userId),
+            eq(workoutTemplateExercises.templateId, templateId)
+          )
+        );
+    }
   }
 
   // Planned Sets

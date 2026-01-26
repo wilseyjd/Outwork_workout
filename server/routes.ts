@@ -244,6 +244,18 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/templates/:templateId/exercises/reorder", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const { exerciseIds } = req.body as { exerciseIds: string[] };
+      await storage.reorderTemplateExercises(userId, req.params.templateId, exerciseIds);
+      res.status(200).json({ success: true });
+    } catch (error) {
+      console.error("Error reordering exercises:", error);
+      res.status(500).json({ message: "Failed to reorder exercises" });
+    }
+  });
+
   // Planned Sets
   app.post("/api/templates/:templateId/exercises/:exerciseId/sets", isAuthenticated, async (req, res) => {
     try {
