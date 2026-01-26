@@ -27,9 +27,13 @@ export default function Supplements() {
   const { toast } = useToast();
   const [newSupplementOpen, setNewSupplementOpen] = useState(false);
   const [editingSupplement, setEditingSupplement] = useState<Supplement | null>(null);
+  const [editingLog, setEditingLog] = useState<SupplementLog | null>(null);
   const [formName, setFormName] = useState("");
   const [formDose, setFormDose] = useState("");
   const [formNotes, setFormNotes] = useState("");
+  const [logFormDose, setLogFormDose] = useState("");
+  const [logFormDate, setLogFormDate] = useState("");
+  const [logFormTime, setLogFormTime] = useState("");
 
   const { data: supplements, isLoading: supplementsLoading } = useQuery<SupplementWithSchedule[]>({
     queryKey: ["/api/supplements"],
@@ -94,10 +98,40 @@ export default function Supplements() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/supplements"] });
       queryClient.invalidateQueries({ queryKey: ["/api/supplements/logs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/supplements/logs/today"] });
       toast({ title: "Intake logged" });
     },
     onError: () => {
       toast({ title: "Failed to log intake", variant: "destructive" });
+    },
+  });
+
+  const updateLogMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: { dose: string; takenAt: string } }) => {
+      return await apiRequest("PATCH", `/api/supplements/logs/${id}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/supplements/logs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/supplements/logs/today"] });
+      resetLogForm();
+      toast({ title: "Log updated" });
+    },
+    onError: () => {
+      toast({ title: "Failed to update log", variant: "destructive" });
+    },
+  });
+
+  const deleteLogMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/supplements/logs/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/supplements/logs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/supplements/logs/today"] });
+      toast({ title: "Log deleted" });
+    },
+    onError: () => {
+      toast({ title: "Failed to delete log", variant: "destructive" });
     },
   });
 
@@ -107,6 +141,30 @@ export default function Supplements() {
     setFormName("");
     setFormDose("");
     setFormNotes("");
+  };
+
+  const resetLogForm = () => {
+    setEditingLog(null);
+    setLogFormDose("");
+    setLogFormDate("");
+    setLogFormTime("");
+  };
+
+  const openEditLogDialog = (log: SupplementLog) => {
+    setEditingLog(log);
+    const takenAt = new Date(log.takenAt);
+    setLogFormDose(log.dose);
+    setLogFormDate(format(takenAt, "yyyy-MM-dd"));
+    setLogFormTime(format(takenAt, "HH:mm"));
+  };
+
+  const handleSaveLog = () => {
+    if (!editingLog) return;
+    const takenAt = new Date(`${logFormDate}T${logFormTime}`);
+    updateLogMutation.mutate({
+      id: editingLog.id,
+      data: { dose: logFormDose, takenAt: takenAt.toISOString() },
+    });
   };
 
   const openEditDialog = (supplement: Supplement) => {
@@ -291,6 +349,55 @@ export default function Supplements() {
           </TabsContent>
 
           <TabsContent value="history" className="space-y-4">
+            <Dialog open={!!editingLog} onOpenChange={(open) => !open && resetLogForm()}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Edit Log</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 pt-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="log-dose">Dose</Label>
+                    <Input
+                      id="log-dose"
+                      value={logFormDose}
+                      onChange={(e) => setLogFormDose(e.target.value)}
+                      data-testid="input-log-dose"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="log-date">Date</Label>
+                      <Input
+                        id="log-date"
+                        type="date"
+                        value={logFormDate}
+                        onChange={(e) => setLogFormDate(e.target.value)}
+                        data-testid="input-log-date"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="log-time">Time</Label>
+                      <Input
+                        id="log-time"
+                        type="time"
+                        value={logFormTime}
+                        onChange={(e) => setLogFormTime(e.target.value)}
+                        data-testid="input-log-time"
+                      />
+                    </div>
+                  </div>
+                  <Button 
+                    className="w-full" 
+                    onClick={handleSaveLog}
+                    disabled={!logFormDose.trim() || !logFormDate || !logFormTime || updateLogMutation.isPending}
+                    data-testid="button-save-log"
+                  >
+                    Save Changes
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+
             {logsLoading ? (
               <ListSkeleton count={5} />
             ) : allLogs && allLogs.length > 0 ? (
@@ -309,10 +416,30 @@ export default function Supplements() {
                           </p>
                           <p className="text-xs text-muted-foreground">{log.dose}</p>
                         </div>
-                        <div className="text-right text-xs text-muted-foreground">
+                        <div className="text-right text-xs text-muted-foreground mr-2">
                           <p>{format(new Date(log.takenAt), "MMM d")}</p>
                           <p>{format(new Date(log.takenAt), "h:mm a")}</p>
                         </div>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" data-testid={`button-log-menu-${log.id}`}>
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => openEditLogDialog(log)}>
+                              <Edit className="h-4 w-4 mr-2" />
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem 
+                              onClick={() => deleteLogMutation.mutate(log.id)}
+                              className="text-destructive focus:text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </Card>
                   );

@@ -523,6 +523,38 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/supplements/logs/:id", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const { id } = req.params;
+      const updateData: { dose?: string; takenAt?: Date; notes?: string | null } = {};
+      if (req.body.dose !== undefined) updateData.dose = req.body.dose;
+      if (req.body.takenAt !== undefined) updateData.takenAt = new Date(req.body.takenAt);
+      if (req.body.notes !== undefined) updateData.notes = req.body.notes;
+      
+      const log = await storage.updateSupplementLog(userId, id, updateData);
+      if (!log) {
+        return res.status(404).json({ message: "Log not found" });
+      }
+      res.json(log);
+    } catch (error) {
+      console.error("Error updating supplement log:", error);
+      res.status(500).json({ message: "Failed to update supplement log" });
+    }
+  });
+
+  app.delete("/api/supplements/logs/:id", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const { id } = req.params;
+      await storage.deleteSupplementLog(userId, id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting supplement log:", error);
+      res.status(500).json({ message: "Failed to delete supplement log" });
+    }
+  });
+
   // ============================================
   // BODY WEIGHT
   // ============================================

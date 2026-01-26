@@ -78,6 +78,8 @@ export interface IStorage {
   getSupplementLogs(userId: string): Promise<SupplementLog[]>;
   getTodaySupplementLogs(userId: string): Promise<SupplementLog[]>;
   logSupplementIntake(data: InsertSupplementLog): Promise<SupplementLog>;
+  updateSupplementLog(userId: string, id: string, data: { dose?: string; takenAt?: Date; notes?: string | null }): Promise<SupplementLog | undefined>;
+  deleteSupplementLog(userId: string, id: string): Promise<void>;
   
   // Body Weight
   getWeightLogs(userId: string): Promise<BodyWeightLog[]>;
@@ -484,6 +486,18 @@ export class DatabaseStorage implements IStorage {
   async logSupplementIntake(data: InsertSupplementLog): Promise<SupplementLog> {
     const [log] = await db.insert(supplementLogs).values(data).returning();
     return log;
+  }
+
+  async updateSupplementLog(userId: string, id: string, data: { dose?: string; takenAt?: Date; notes?: string | null }): Promise<SupplementLog | undefined> {
+    const [log] = await db.update(supplementLogs)
+      .set(data)
+      .where(and(eq(supplementLogs.id, id), eq(supplementLogs.userId, userId)))
+      .returning();
+    return log;
+  }
+
+  async deleteSupplementLog(userId: string, id: string): Promise<void> {
+    await db.delete(supplementLogs).where(and(eq(supplementLogs.id, id), eq(supplementLogs.userId, userId)));
   }
 
   // Body Weight
