@@ -604,5 +604,17 @@ export async function registerRoutes(
     }
   });
 
+  // Export all sessions with full details
+  app.get("/api/sessions/export", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const sessions = await storage.getSessionsForExport(userId);
+      res.json(sessions);
+    } catch (error) {
+      console.error("Error exporting sessions:", error);
+      res.status(500).json({ message: "Failed to export sessions" });
+    }
+  });
+
   return httpServer;
 }

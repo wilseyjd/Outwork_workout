@@ -85,6 +85,9 @@ export interface IStorage {
   getWeightLogs(userId: string): Promise<BodyWeightLog[]>;
   logWeight(data: InsertBodyWeightLog): Promise<BodyWeightLog>;
   
+  // Export
+  getSessionsForExport(userId: string): Promise<any[]>;
+  
   // Analytics
   getExerciseAnalytics(userId: string, exerciseId: string): Promise<{
     date: string;
@@ -517,6 +520,60 @@ export class DatabaseStorage implements IStorage {
   async logWeight(data: InsertBodyWeightLog): Promise<BodyWeightLog> {
     const [log] = await db.insert(bodyWeightLogs).values(data).returning();
     return log;
+  }
+
+  // Export
+  async getSessionsForExport(userId: string): Promise<any[]> {
+    const allSessions = await db.select().from(workoutSessions)
+      .where(eq(workoutSessions.userId, userId))
+      .orderBy(desc(workoutSessions.startedAt));
+
+    const sessionsWithDetails = await Promise.all(allSessions.map(async (session) => {
+      let templateName = null;
+      if (session.templateId) {
+        const [template] = await db.select().from(workoutTemplates).where(eq(workoutTemplates.id, session.templateId));
+        templateName = template?.name;
+      }
+
+      const sessionExs = await db.select().from(sessionExercises)
+        .where(eq(sessionExercises.sessionId, session.id))
+        .orderBy(sessionExercises.position);
+
+      const exercisesWithDetails = await Promise.all(sessionExs.map(async (se) => {
+        const [exercise] = await db.select().from(exercises).where(eq(exercises.id, se.exerciseId));
+        const sets = await db.select().from(performedSets)
+          .where(eq(performedSets.sessionExerciseId, se.id))
+          .orderBy(performedSets.setNumber);
+        
+        let plannedSetsList: PlannedSet[] = [];
+        if (session.templateId) {
+          const [templateExercise] = await db.select().from(workoutTemplateExercises)
+            .where(and(
+              eq(workoutTemplateExercises.templateId, session.templateId), 
+              eq(workoutTemplateExercises.exerciseId, se.exerciseId)
+            ));
+          if (templateExercise) {
+            plannedSetsList = await db.select().from(plannedSets)
+              .where(eq(plannedSets.templateExerciseId, templateExercise.id))
+              .orderBy(plannedSets.setNumber);
+          }
+        }
+        
+        return { 
+          exerciseName: exercise?.name || "Unknown",
+          performedSets: sets, 
+          plannedSets: plannedSetsList 
+        };
+      }));
+
+      return { 
+        ...session, 
+        templateName, 
+        exercises: exercisesWithDetails 
+      };
+    }));
+
+    return sessionsWithDetails;
   }
 
   // Analytics

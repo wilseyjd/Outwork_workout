@@ -21,39 +21,86 @@ export default function History() {
     queryKey: ["/api/sessions"],
   });
 
-  const downloadCSV = () => {
+  const downloadCSV = async () => {
     if (!sessions || sessions.length === 0) return;
     
-    const headers = ["Date", "Time", "Workout", "Duration (min)", "Exercises", "Sets"];
-    const rows = sessions.map(session => {
-      const start = new Date(session.startedAt);
-      let duration = "";
-      if (session.endedAt) {
-        const end = new Date(session.endedAt);
-        duration = Math.round((end.getTime() - start.getTime()) / 60000).toString();
-      }
-      return [
-        format(start, "yyyy-MM-dd"),
-        format(start, "HH:mm"),
-        session.template?.name || "Ad-hoc Workout",
-        duration,
-        session.exerciseCount?.toString() || "",
-        session.setCount?.toString() || ""
+    try {
+      const response = await fetch("/api/sessions/export", { credentials: "include" });
+      if (!response.ok) throw new Error("Export failed");
+      const exportData = await response.json();
+      
+      const headers = [
+        "Date", "Time", "Workout", "Duration (min)", 
+        "Exercise", "Set #", "Warmup",
+        "Planned Reps", "Planned Weight", "Planned Time (s)", "Rest (s)",
+        "Actual Reps", "Actual Weight", "Actual Time (s)", "Notes"
       ];
-    });
-    
-    const csvContent = [
-      headers.join(","),
-      ...rows.map(row => row.map(cell => `"${cell}"`).join(","))
-    ].join("\n");
-    
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `workout-history-${format(new Date(), "yyyy-MM-dd")}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+      
+      const rows: string[][] = [];
+      
+      for (const session of exportData) {
+        const start = new Date(session.startedAt);
+        let duration = "";
+        if (session.endedAt) {
+          const end = new Date(session.endedAt);
+          duration = Math.round((end.getTime() - start.getTime()) / 60000).toString();
+        }
+        
+        const workoutName = session.templateName || "Ad-hoc Workout";
+        const dateStr = format(start, "yyyy-MM-dd");
+        const timeStr = format(start, "HH:mm");
+        
+        if (!session.exercises || session.exercises.length === 0) {
+          rows.push([dateStr, timeStr, workoutName, duration, "", "", "", "", "", "", "", "", "", "", ""]);
+        } else {
+          for (const exercise of session.exercises) {
+            const maxSets = Math.max(
+              exercise.performedSets?.length || 0,
+              exercise.plannedSets?.length || 0,
+              1
+            );
+            
+            for (let i = 0; i < maxSets; i++) {
+              const planned = exercise.plannedSets?.[i];
+              const performed = exercise.performedSets?.[i];
+              
+              rows.push([
+                dateStr,
+                timeStr,
+                workoutName,
+                duration,
+                exercise.exerciseName,
+                (i + 1).toString(),
+                performed?.isWarmup ? "Yes" : (planned?.isWarmup ? "Yes" : "No"),
+                planned?.targetReps?.toString() || "",
+                planned?.targetWeight || "",
+                planned?.targetTimeSeconds?.toString() || "",
+                planned?.restSeconds?.toString() || "",
+                performed?.actualReps?.toString() || "",
+                performed?.actualWeight || "",
+                performed?.actualTimeSeconds?.toString() || "",
+                performed?.notes || ""
+              ]);
+            }
+          }
+        }
+      }
+      
+      const csvContent = [
+        headers.join(","),
+        ...rows.map(row => row.map(cell => `"${(cell || "").replace(/"/g, '""')}"`).join(","))
+      ].join("\n");
+      
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `workout-history-${format(new Date(), "yyyy-MM-dd")}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Export failed:", error);
+    }
   };
 
   const formatDuration = (session: SessionWithTemplate) => {
