@@ -47,7 +47,7 @@ export default function Landing() {
             <span className="font-semibold text-lg tracking-tight">Outwork</span>
           </div>
           <Button asChild data-testid="button-login-header">
-            <a href="/api/login">Log in</a>
+            <a href="/auth">Log in</a>
           </Button>
         </div>
       </header>
@@ -72,7 +72,7 @@ export default function Landing() {
             
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-8">
               <Button size="lg" asChild className="w-full sm:w-auto" data-testid="button-get-started">
-                <a href="/api/login">Get started free</a>
+                <a href="/auth">Get started free</a>
               </Button>
               <p className="text-sm text-muted-foreground">
                 No credit card required
@@ -121,7 +121,7 @@ export default function Landing() {
               Join now and start logging your training in seconds
             </p>
             <Button size="lg" asChild data-testid="button-get-started-bottom">
-              <a href="/api/login">Start tracking</a>
+              <a href="/auth">Start tracking</a>
             </Button>
           </div>
         </section>

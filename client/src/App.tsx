@@ -8,6 +8,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import Landing from "@/pages/landing";
+import Auth from "@/pages/auth";
 import Today from "@/pages/today";
 import Plan from "@/pages/plan";
 import History from "@/pages/history";
@@ -63,6 +64,15 @@ function AuthenticatedRoutes() {
   );
 }
 
+function UnauthenticatedRoutes() {
+  return (
+    <Switch>
+      <Route path="/auth" component={Auth} />
+      <Route component={Landing} />
+    </Switch>
+  );
+}
+
 function AppRouter() {
   const { user, isLoading } = useAuth();
 
@@ -71,7 +81,7 @@ function AppRouter() {
   }
 
   if (!user) {
-    return <Landing />;
+    return <UnauthenticatedRoutes />;
   }
 
   return <AuthenticatedRoutes />;
