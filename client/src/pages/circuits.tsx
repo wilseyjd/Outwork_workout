@@ -209,7 +209,7 @@ export default function Circuits() {
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <div className="space-y-2">
-                  <Label htmlFor="circuit-rounds">Default Rounds</Label>
+                  <Label htmlFor="circuit-rounds" className="text-xs"># of Rounds</Label>
                   <Input
                     id="circuit-rounds"
                     type="number"
@@ -219,7 +219,7 @@ export default function Circuits() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="circuit-rest-exercises">Rest Between Ex. (s)</Label>
+                  <Label htmlFor="circuit-rest-exercises" className="text-xs">Rest Between Exercises</Label>
                   <Input
                     id="circuit-rest-exercises"
                     type="number"
@@ -230,7 +230,7 @@ export default function Circuits() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="circuit-rest-rounds">Rest Between Rds. (s)</Label>
+                  <Label htmlFor="circuit-rest-rounds" className="text-xs">Rest Between Rounds</Label>
                   <Input
                     id="circuit-rest-rounds"
                     type="number"
