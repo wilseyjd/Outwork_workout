@@ -11,7 +11,7 @@ import { EmptyState } from "@/components/empty-state";
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/components/theme-provider";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Scale, Plus, TrendingDown, TrendingUp, Minus, Moon, Sun, LogOut, ChevronRight } from "lucide-react";
+import { Scale, Plus, TrendingDown, TrendingUp, Minus, Moon, Sun, LogOut, ChevronRight, Key } from "lucide-react";
 import { format } from "date-fns";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -24,6 +24,10 @@ export default function Settings() {
   const [weightDialogOpen, setWeightDialogOpen] = useState(false);
   const [newWeight, setNewWeight] = useState("");
   const [weightNotes, setWeightNotes] = useState("");
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
 
   const initials = user?.firstName && user?.lastName
     ? `${user.firstName[0]}${user.lastName[0]}`
@@ -53,9 +57,29 @@ export default function Settings() {
     },
   });
 
+  const changePasswordMutation = useMutation({
+    mutationFn: async (data: { currentPassword: string; newPassword: string }) => {
+      return await apiRequest("POST", "/api/auth/change-password", data);
+    },
+    onSuccess: () => {
+      setPasswordDialogOpen(false);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      toast({ title: "Password changed successfully" });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to change password",
+        description: error.message,
+        variant: "destructive"
+      });
+    },
+  });
+
   const latestWeight = weightLogs?.[0];
   const previousWeight = weightLogs?.[1];
-  const weightChange = latestWeight && previousWeight 
+  const weightChange = latestWeight && previousWeight
     ? Number(latestWeight.weightLbs) - Number(previousWeight.weightLbs)
     : null;
 
@@ -121,8 +145,8 @@ export default function Settings() {
                       data-testid="input-weight-notes"
                     />
                   </div>
-                  <Button 
-                    className="w-full" 
+                  <Button
+                    className="w-full"
                     onClick={() => logWeightMutation.mutate({
                       weightLbs: newWeight,
                       notes: weightNotes || undefined,
@@ -150,13 +174,12 @@ export default function Settings() {
                   </p>
                 </div>
                 {weightChange !== null && (
-                  <div className={`flex items-center gap-1 text-sm font-medium ${
-                    weightChange > 0 
-                      ? "text-red-500" 
-                      : weightChange < 0 
-                        ? "text-green-500" 
-                        : "text-muted-foreground"
-                  }`}>
+                  <div className={`flex items-center gap-1 text-sm font-medium ${weightChange > 0
+                    ? "text-red-500"
+                    : weightChange < 0
+                      ? "text-green-500"
+                      : "text-muted-foreground"
+                    }`}>
                     {weightChange > 0 ? (
                       <TrendingUp className="h-4 w-4" />
                     ) : weightChange < 0 ? (
@@ -207,8 +230,90 @@ export default function Settings() {
 
         <div className="space-y-3">
           <h2 className="font-semibold text-lg">Preferences</h2>
-          
-          <Card 
+
+          <Dialog open={passwordDialogOpen} onOpenChange={setPasswordDialogOpen}>
+            <DialogTrigger asChild>
+              <Card
+                className="p-4 hover-elevate cursor-pointer"
+                data-testid="card-change-password"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Key className="h-5 w-5 text-muted-foreground" />
+                    <div>
+                      <p className="font-medium">Change Password</p>
+                      <p className="text-sm text-muted-foreground">
+                        Update your password
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                </div>
+              </Card>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Change Password</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 pt-4">
+                <div className="space-y-2">
+                  <Label htmlFor="current-password">Current Password</Label>
+                  <Input
+                    id="current-password"
+                    type="password"
+                    placeholder="Enter current password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    data-testid="input-current-password"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="new-password">New Password</Label>
+                  <Input
+                    id="new-password"
+                    type="password"
+                    placeholder="At least 6 characters"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    data-testid="input-new-password"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="confirm-password">Confirm New Password</Label>
+                  <Input
+                    id="confirm-password"
+                    type="password"
+                    placeholder="Repeat new password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    data-testid="input-confirm-password"
+                  />
+                </div>
+                <Button
+                  className="w-full"
+                  onClick={() => {
+                    if (newPassword !== confirmPassword) {
+                      toast({
+                        title: "Passwords don't match",
+                        variant: "destructive"
+                      });
+                      return;
+                    }
+                    changePasswordMutation.mutate({
+                      currentPassword,
+                      newPassword
+                    });
+                  }}
+                  disabled={!currentPassword || !newPassword || !confirmPassword || changePasswordMutation.isPending}
+                  data-testid="button-change-password"
+                >
+                  Change Password
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          <Card
             className="p-4 hover-elevate cursor-pointer"
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
             data-testid="card-theme-toggle"
@@ -232,8 +337,8 @@ export default function Settings() {
           </Card>
         </div>
 
-        <Button 
-          variant="outline" 
+        <Button
+          variant="outline"
           className="w-full text-destructive hover:text-destructive"
           onClick={() => logout()}
           data-testid="button-logout"

@@ -31,18 +31,19 @@ export default function Exercises() {
   const [formName, setFormName] = useState("");
   const [formCategory, setFormCategory] = useState("");
   const [formNotes, setFormNotes] = useState("");
+  const [formUrl, setFormUrl] = useState("");
 
   const { data: exercises, isLoading } = useQuery<Exercise[]>({
     queryKey: ["/api/exercises"],
   });
 
-  const filteredExercises = exercises?.filter(e => 
+  const filteredExercises = exercises?.filter(e =>
     e.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     e.category?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const createExerciseMutation = useMutation({
-    mutationFn: async (data: { name: string; category?: string; notes?: string }) => {
+    mutationFn: async (data: { name: string; category?: string; notes?: string; url?: string }) => {
       return await apiRequest("POST", "/api/exercises", data);
     },
     onSuccess: () => {
@@ -56,7 +57,7 @@ export default function Exercises() {
   });
 
   const updateExerciseMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: { name: string; category?: string; notes?: string } }) => {
+    mutationFn: async ({ id, data }: { id: string; data: { name: string; category?: string; notes?: string; url?: string } }) => {
       return await apiRequest("PATCH", `/api/exercises/${id}`, data);
     },
     onSuccess: () => {
@@ -101,6 +102,7 @@ export default function Exercises() {
     setFormName("");
     setFormCategory("");
     setFormNotes("");
+    setFormUrl("");
   };
 
   const openEditDialog = (exercise: Exercise) => {
@@ -108,16 +110,18 @@ export default function Exercises() {
     setFormName(exercise.name);
     setFormCategory(exercise.category || "");
     setFormNotes(exercise.notes || "");
+    setFormUrl(exercise.url || "");
     setDialogOpen(true);
   };
 
   const handleSave = () => {
-    const data = { 
-      name: formName, 
-      category: formCategory || undefined, 
-      notes: formNotes || undefined 
+    const data = {
+      name: formName,
+      category: formCategory || undefined,
+      notes: formNotes || undefined,
+      url: formUrl || undefined
     };
-    
+
     if (editingExercise) {
       updateExerciseMutation.mutate({ id: editingExercise.id, data });
     } else {
@@ -187,6 +191,16 @@ export default function Exercises() {
                 </Select>
               </div>
               <div className="space-y-2">
+                <Label htmlFor="ex-url">Reference URL (optional)</Label>
+                <Input
+                  id="ex-url"
+                  placeholder="https://example.com"
+                  value={formUrl}
+                  onChange={(e) => setFormUrl(e.target.value)}
+                  data-testid="input-exercise-url"
+                />
+              </div>
+              <div className="space-y-2">
                 <Label htmlFor="ex-notes">Notes (optional)</Label>
                 <Textarea
                   id="ex-notes"
@@ -196,8 +210,8 @@ export default function Exercises() {
                   data-testid="input-exercise-notes"
                 />
               </div>
-              <Button 
-                className="w-full" 
+              <Button
+                className="w-full"
                 onClick={handleSave}
                 disabled={!formName.trim() || createExerciseMutation.isPending || updateExerciseMutation.isPending}
                 data-testid="button-save-exercise"
@@ -213,8 +227,8 @@ export default function Exercises() {
         ) : filteredExercises && filteredExercises.length > 0 ? (
           <div className="space-y-2">
             {filteredExercises.map((exercise) => (
-              <Card 
-                key={exercise.id} 
+              <Card
+                key={exercise.id}
                 className="p-4 hover-elevate"
                 data-testid={`card-exercise-${exercise.id}`}
               >
@@ -224,7 +238,14 @@ export default function Exercises() {
                       <Dumbbell className="h-5 w-5 text-muted-foreground" />
                     </div>
                     <div className="min-w-0">
-                      <p className="font-medium truncate">{exercise.name}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium truncate">{exercise.name}</p>
+                        {exercise.isSystem && (
+                          <Badge variant="outline" className="text-[10px] uppercase font-bold text-primary border-primary h-4 px-1">
+                            Default
+                          </Badge>
+                        )}
+                      </div>
                       {exercise.category && (
                         <Badge variant="secondary" className="text-xs mt-0.5">
                           {exercise.category}
@@ -240,20 +261,24 @@ export default function Exercises() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => openEditDialog(exercise)}>
+                        <DropdownMenuItem
+                          onClick={() => openEditDialog(exercise)}
+                          disabled={exercise.isSystem}
+                          className={exercise.isSystem ? "opacity-50" : ""}
+                        >
                           <Edit className="h-4 w-4 mr-2" />
-                          Edit
+                          Edit {exercise.isSystem && "(System Only)"}
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => copyExerciseMutation.mutate(exercise.id)}>
                           <Copy className="h-4 w-4 mr-2" />
                           Duplicate
                         </DropdownMenuItem>
-                        <DropdownMenuItem 
+                        <DropdownMenuItem
                           onClick={() => deleteExerciseMutation.mutate(exercise.id)}
                           className="text-destructive focus:text-destructive"
                         >
                           <Trash2 className="h-4 w-4 mr-2" />
-                          Delete
+                          {exercise.isSystem ? "Remove from Library" : "Delete"}
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>

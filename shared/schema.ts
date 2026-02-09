@@ -13,16 +13,26 @@ export const supplementScheduleTypeEnum = pgEnum("supplement_schedule_type", ["d
 // Exercises table - user's exercise bank
 export const exercises = pgTable("exercises", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").notNull(),
+  userId: varchar("user_id"), // Nullable for system exercises
   name: text("name").notNull(),
   category: text("category"),
   defaultTracking: jsonb("default_tracking").$type<{ weight: boolean; reps: boolean; time: boolean }>().default({ weight: true, reps: true, time: false }),
   notes: text("notes"),
+  url: text("url"),
+  isSystem: boolean("is_system").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   unique("exercises_user_name_unique").on(table.userId, table.name),
   index("exercises_user_idx").on(table.userId),
+]);
+
+export const hiddenSystemExercises = pgTable("hidden_system_exercises", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  exerciseId: varchar("exercise_id").notNull(),
+}, (table) => [
+  index("hidden_exercises_user_idx").on(table.userId),
 ]);
 
 // Workout templates table - planned workout definitions

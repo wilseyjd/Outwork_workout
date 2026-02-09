@@ -27,9 +27,7 @@ export function AppHeader() {
     <header className="sticky top-0 z-40 bg-background/95 backdrop-blur-lg border-b border-border">
       <div className="flex items-center justify-between h-14 px-4 max-w-lg mx-auto">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-            <span className="text-primary-foreground font-bold text-sm">O</span>
-          </div>
+          <img src="/outwork-logo.png" alt="Outwork Logo" className="w-8 h-8 rounded-lg" />
           <span className="font-semibold text-lg tracking-tight">Outwork</span>
         </div>
 

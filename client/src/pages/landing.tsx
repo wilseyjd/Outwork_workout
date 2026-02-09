@@ -41,9 +41,7 @@ export default function Landing() {
       <header className="sticky top-0 z-50 bg-background/80 backdrop-blur-lg border-b border-border">
         <div className="flex items-center justify-between h-14 px-4 max-w-6xl mx-auto">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-              <span className="text-primary-foreground font-bold text-sm">O</span>
-            </div>
+            <img src="/outwork-logo.png" alt="Outwork Logo" className="w-8 h-8 rounded-lg" />
             <span className="font-semibold text-lg tracking-tight">Outwork</span>
           </div>
           <Button asChild data-testid="button-login-header">
@@ -59,24 +57,21 @@ export default function Landing() {
               <Dumbbell className="h-4 w-4" />
               Track your gains
             </div>
-            
+
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-serif font-bold tracking-tight mb-6">
               Your workout journal,{" "}
               <span className="text-primary">simplified</span>
             </h1>
-            
+
             <p className="text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto mb-8">
-              Plan workouts, log every set, track supplements, and see your progress over time. 
-              Built for lifters who want to get stronger without the complexity.
+              Plan workouts, log every set, track supplements, and see your progress over time.
+              Hit your fitness goals without the complexity.
             </p>
-            
+
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-8">
               <Button size="lg" asChild className="w-full sm:w-auto" data-testid="button-get-started">
-                <a href="/auth">Get started free</a>
+                <a href="/auth">Get started</a>
               </Button>
-              <p className="text-sm text-muted-foreground">
-                No credit card required
-              </p>
             </div>
           </div>
         </section>
@@ -94,8 +89,8 @@ export default function Landing() {
 
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {features.map((feature, index) => (
-                <Card 
-                  key={index} 
+                <Card
+                  key={index}
                   className="p-6 hover-elevate transition-transform"
                   data-testid={`card-feature-${index}`}
                 >
@@ -130,9 +125,7 @@ export default function Landing() {
       <footer className="border-t border-border py-6 px-4">
         <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded bg-primary flex items-center justify-center">
-              <span className="text-primary-foreground font-bold text-xs">O</span>
-            </div>
+            <img src="/outwork-logo.png" alt="Outwork Logo" className="w-6 h-6 rounded" />
             <span>Outwork</span>
           </div>
           <p>&copy; {new Date().getFullYear()} Outwork. Built for lifters.</p>

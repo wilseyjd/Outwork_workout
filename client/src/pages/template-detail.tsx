@@ -10,7 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { PageSkeleton, ListSkeleton } from "@/components/loading-skeleton";
 import { EmptyState } from "@/components/empty-state";
-import { ArrowLeft, Plus, Dumbbell, ChevronUp, ChevronDown, Trash2, Edit, Save, X, Copy } from "lucide-react";
+import { ArrowLeft, Plus, Dumbbell, ChevronUp, ChevronDown, Trash2, Edit, Save, X, Copy, Search } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { WorkoutTemplate, WorkoutTemplateExercise, PlannedSet, Exercise } from "@shared/schema";
@@ -31,7 +31,9 @@ export default function TemplateDetail() {
   const templateId = params?.id;
 
   const [addExerciseOpen, setAddExerciseOpen] = useState(false);
+  const [exerciseSearchQuery, setExerciseSearchQuery] = useState("");
   const [editingSets, setEditingSets] = useState<string | null>(null);
+  const [editingSetId, setEditingSetId] = useState<string | null>(null);
   const [setFormData, setSetFormData] = useState<{
     targetReps: string;
     targetWeight: string;
@@ -102,23 +104,23 @@ export default function TemplateDetail() {
     const exercises = [...template.exercises];
     const newIndex = direction === "up" ? index - 1 : index + 1;
     if (newIndex < 0 || newIndex >= exercises.length) return;
-    
+
     [exercises[index], exercises[newIndex]] = [exercises[newIndex], exercises[index]];
     const exerciseIds = exercises.map(e => e.id);
     reorderMutation.mutate(exerciseIds);
   };
 
   const addSetMutation = useMutation({
-    mutationFn: async ({ templateExerciseId, data }: { 
-      templateExerciseId: string; 
-      data: { 
+    mutationFn: async ({ templateExerciseId, data }: {
+      templateExerciseId: string;
+      data: {
         setNumber: number;
         targetReps?: number;
         targetWeight?: string;
         targetTimeSeconds?: number;
         restSeconds?: number;
         isWarmup?: boolean;
-      } 
+      }
     }) => {
       return await apiRequest("POST", `/api/templates/${templateId}/exercises/${templateExerciseId}/sets`, data);
     },
@@ -136,8 +138,20 @@ export default function TemplateDetail() {
     mutationFn: async ({ templateExerciseId, setId }: { templateExerciseId: string; setId: string }) => {
       await apiRequest("DELETE", `/api/templates/${templateId}/exercises/${templateExerciseId}/sets/${setId}`);
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
+      const { templateExerciseId, setId } = variables;
       queryClient.invalidateQueries({ queryKey: ["/api/templates", templateId] });
+
+      // Calculate remaining set IDs and trigger reorder
+      const templateExercise = template?.exercises?.find(te => te.id === templateExerciseId);
+      if (templateExercise && templateExercise.plannedSets) {
+        const remainingSetIds = templateExercise.plannedSets
+          .filter(s => s.id !== setId)
+          .map(s => s.id);
+
+        reorderSetsMutation.mutate({ templateExerciseId, setIds: remainingSetIds });
+      }
+
       toast({ title: "Set removed" });
     },
     onError: () => {
@@ -145,13 +159,55 @@ export default function TemplateDetail() {
     },
   });
 
-  const duplicateSetMutation = useMutation({
-    mutationFn: async ({ templateExerciseId, set, newSetNumber }: { 
-      templateExerciseId: string; 
-      set: PlannedSet;
-      newSetNumber: number;
+  const reorderSetsMutation = useMutation({
+    mutationFn: async ({ templateExerciseId, setIds }: { templateExerciseId: string; setIds: string[] }) => {
+      await apiRequest("POST", `/api/templates/${templateId}/exercises/${templateExerciseId}/sets/reorder`, { setIds });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/templates", templateId] });
+    },
+  });
+
+  // Re-write deleteSetMutation to be cleaner and trigger reorder
+  // I need to be careful because invalidateQueries is async.
+  // Better approach: handle reorder in a separate effect or just call it directly if data is available.
+
+  const updateSetMutation = useMutation({
+    mutationFn: async ({ templateExerciseId, setId, data }: {
+      templateExerciseId: string;
+      setId: string;
+      data: {
+        targetReps?: number;
+        targetWeight?: string;
+        targetTimeSeconds?: number;
+        restSeconds?: number;
+        isWarmup?: boolean;
+      }
     }) => {
-      const data: any = { setNumber: newSetNumber };
+      return await apiRequest("PATCH", `/api/templates/${templateId}/exercises/${templateExerciseId}/sets/${setId}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/templates", templateId] });
+      resetSetForm();
+      toast({ title: "Set updated" });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to update set",
+        description: error.message || "Unknown error",
+        variant: "destructive"
+      });
+    },
+  });
+
+  const duplicateSetMutation = useMutation({
+    mutationFn: async ({ templateExerciseId, set, currentSets }: {
+      templateExerciseId: string;
+      set: PlannedSet;
+      currentSets: PlannedSet[];
+    }) => {
+      const nextSetNumber = Math.max(...currentSets.map(s => s.setNumber), 0) + 1;
+      const data: any = { setNumber: nextSetNumber };
       if (set.targetReps) data.targetReps = set.targetReps;
       if (set.targetWeight) data.targetWeight = set.targetWeight;
       if (set.targetTimeSeconds) data.targetTimeSeconds = set.targetTimeSeconds;
@@ -170,6 +226,7 @@ export default function TemplateDetail() {
 
   const resetSetForm = () => {
     setEditingSets(null);
+    setEditingSetId(null);
     setSetFormData({
       targetReps: "",
       targetWeight: "",
@@ -179,11 +236,12 @@ export default function TemplateDetail() {
     });
   };
 
-  const handleAddSet = (templateExerciseId: string, currentSetsCount: number) => {
+  const handleAddSet = (templateExerciseId: string, currentSets: PlannedSet[]) => {
+    const nextSetNumber = Math.max(...currentSets.map(s => s.setNumber), 0) + 1;
     const data: any = {
-      setNumber: currentSetsCount + 1,
+      setNumber: nextSetNumber,
     };
-    
+
     if (setFormData.targetReps) data.targetReps = parseInt(setFormData.targetReps);
     if (setFormData.targetWeight) data.targetWeight = setFormData.targetWeight;
     if (setFormData.targetTime) data.targetTimeSeconds = parseInt(setFormData.targetTime);
@@ -193,8 +251,45 @@ export default function TemplateDetail() {
     addSetMutation.mutate({ templateExerciseId, data });
   };
 
+  const handleEditSet = (set: PlannedSet) => {
+    setEditingSetId(set.id);
+    setSetFormData({
+      targetReps: set.targetReps?.toString() || "",
+      targetWeight: set.targetWeight || "",
+      targetTime: set.targetTimeSeconds?.toString() || "",
+      restSeconds: set.restSeconds?.toString() || "",
+      isWarmup: set.isWarmup || false,
+    });
+  };
+
+  const handleUpdateSet = (templateExerciseId: string, setId: string) => {
+    const data: any = {};
+
+    // Only add numeric fields if they have valid values
+    const reps = parseInt(setFormData.targetReps);
+    if (!isNaN(reps) && setFormData.targetReps) data.targetReps = reps;
+
+    if (setFormData.targetWeight && setFormData.targetWeight.trim()) {
+      data.targetWeight = setFormData.targetWeight;
+    }
+
+    const time = parseInt(setFormData.targetTime);
+    if (!isNaN(time) && setFormData.targetTime) data.targetTimeSeconds = time;
+
+    const rest = parseInt(setFormData.restSeconds);
+    if (!isNaN(rest) && setFormData.restSeconds) data.restSeconds = rest;
+
+    data.isWarmup = setFormData.isWarmup;
+
+    console.log("Updating set with data:", data);
+    updateSetMutation.mutate({ templateExerciseId, setId, data });
+  };
+
   const availableExercises = allExercises?.filter(
     ex => !template?.exercises?.some(te => te.exerciseId === ex.id)
+  ).filter(ex =>
+    ex.name.toLowerCase().includes(exerciseSearchQuery.toLowerCase()) ||
+    ex.category?.toLowerCase().includes(exerciseSearchQuery.toLowerCase())
   );
 
   if (isLoading) {
@@ -251,30 +346,43 @@ export default function TemplateDetail() {
             <DialogHeader>
               <DialogTitle>Add Exercise</DialogTitle>
             </DialogHeader>
-            <div className="space-y-2 pt-4">
-              {availableExercises && availableExercises.length > 0 ? (
-                availableExercises.map((exercise) => (
-                  <button
-                    key={exercise.id}
-                    onClick={() => addExerciseMutation.mutate(exercise.id)}
-                    disabled={addExerciseMutation.isPending}
-                    className="w-full p-3 rounded-lg border border-border hover:bg-muted text-left transition-colors"
-                    data-testid={`button-select-${exercise.id}`}
-                  >
-                    <p className="font-medium">{exercise.name}</p>
-                    {exercise.category && (
-                      <p className="text-sm text-muted-foreground">{exercise.category}</p>
-                    )}
-                  </button>
-                ))
-              ) : (
-                <div className="text-center py-8">
-                  <p className="text-muted-foreground">No more exercises to add</p>
-                  <Button variant="link" asChild className="mt-2">
+            <div className="pt-4 space-y-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search exercises..."
+                  value={exerciseSearchQuery}
+                  onChange={(e) => setExerciseSearchQuery(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+              <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+                {availableExercises && availableExercises.length > 0 ? (
+                  availableExercises.map((exercise) => (
+                    <button
+                      key={exercise.id}
+                      onClick={() => addExerciseMutation.mutate(exercise.id)}
+                      disabled={addExerciseMutation.isPending}
+                      className="w-full p-3 rounded-lg border border-border hover:bg-muted text-left transition-colors"
+                      data-testid={`button-select-${exercise.id}`}
+                    >
+                      <p className="font-medium">{exercise.name}</p>
+                      {exercise.category && (
+                        <p className="text-sm text-muted-foreground">{exercise.category}</p>
+                      )}
+                    </button>
+                  ))
+                ) : (
+                  <div className="text-center py-8">
+                    <p className="text-muted-foreground">No more exercises to add</p>
+                  </div>
+                )}
+                <div className="text-center py-4 border-t mt-4">
+                  <Button variant="ghost" asChild className="text-primary hover:underline h-auto p-0 font-normal">
                     <Link href="/exercises">Create new exercise</Link>
                   </Button>
                 </div>
-              )}
+              </div>
             </div>
           </DialogContent>
         </Dialog>
@@ -332,52 +440,137 @@ export default function TemplateDetail() {
                   {templateExercise.plannedSets && templateExercise.plannedSets.length > 0 && (
                     <div className="space-y-1">
                       {templateExercise.plannedSets.map((set) => (
-                        <div 
-                          key={set.id} 
-                          className="flex items-center justify-between px-3 py-2 bg-muted rounded-lg text-sm"
-                          data-testid={`row-set-${set.id}`}
-                        >
-                          <div className="flex items-center gap-3">
-                            <span className="font-medium w-6">#{set.setNumber}</span>
-                            {set.isWarmup && (
-                              <span className="text-xs text-muted-foreground">(warmup)</span>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-4 text-muted-foreground">
-                            {set.targetReps && <span>{set.targetReps} reps</span>}
-                            {set.targetWeight && <span>{set.targetWeight} lbs</span>}
-                            {set.targetTimeSeconds && <span>{set.targetTimeSeconds}s</span>}
-                            {set.restSeconds && <span className="text-xs">Rest: {set.restSeconds}s</span>}
-                            <div className="flex items-center gap-1">
+                        editingSetId === set.id ? (
+                          <div key={set.id} className="space-y-3 p-3 border border-border rounded-lg bg-background">
+                            <div className="flex items-center justify-between">
+                              <span className="font-medium text-sm">Edit Set #{set.setNumber}</span>
+                              {set.isWarmup && (
+                                <span className="text-xs text-muted-foreground">(warmup)</span>
+                              )}
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="space-y-1">
+                                <Label className="text-xs">Reps</Label>
+                                <Input
+                                  type="number"
+                                  placeholder="10"
+                                  value={setFormData.targetReps}
+                                  onChange={(e) => setSetFormData(prev => ({ ...prev, targetReps: e.target.value }))}
+                                  data-testid="input-edit-reps"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Weight (lbs)</Label>
+                                <Input
+                                  type="number"
+                                  placeholder="135"
+                                  value={setFormData.targetWeight}
+                                  onChange={(e) => setSetFormData(prev => ({ ...prev, targetWeight: e.target.value }))}
+                                  data-testid="input-edit-weight"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Time (sec)</Label>
+                                <Input
+                                  type="number"
+                                  placeholder="60"
+                                  value={setFormData.targetTime}
+                                  onChange={(e) => setSetFormData(prev => ({ ...prev, targetTime: e.target.value }))}
+                                  data-testid="input-edit-time"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">Rest (sec)</Label>
+                                <Input
+                                  type="number"
+                                  placeholder="90"
+                                  value={setFormData.restSeconds}
+                                  onChange={(e) => setSetFormData(prev => ({ ...prev, restSeconds: e.target.value }))}
+                                  data-testid="input-edit-rest"
+                                />
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Checkbox
+                                id={`edit-warmup-${set.id}`}
+                                checked={setFormData.isWarmup}
+                                onCheckedChange={(checked) => setSetFormData(prev => ({ ...prev, isWarmup: !!checked }))}
+                                data-testid="checkbox-edit-warmup"
+                              />
+                              <Label htmlFor={`edit-warmup-${set.id}`} className="text-sm">Warmup set</Label>
+                            </div>
+                            <div className="flex gap-2">
                               <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6"
-                                onClick={() => duplicateSetMutation.mutate({ 
-                                  templateExerciseId: templateExercise.id, 
-                                  set,
-                                  newSetNumber: (templateExercise.plannedSets?.length || 0) + 1
-                                })}
-                                disabled={duplicateSetMutation.isPending}
-                                data-testid={`button-duplicate-set-${set.id}`}
+                                size="sm"
+                                onClick={() => handleUpdateSet(templateExercise.id, set.id)}
+                                disabled={updateSetMutation.isPending}
+                                data-testid="button-save-edit-set"
                               >
-                                <Copy className="h-3 w-3" />
+                                <Save className="h-4 w-4 mr-1" />
+                                Save
                               </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6"
-                                onClick={() => deleteSetMutation.mutate({ 
-                                  templateExerciseId: templateExercise.id, 
-                                  setId: set.id 
-                                })}
-                                data-testid={`button-delete-set-${set.id}`}
-                              >
-                                <X className="h-3 w-3" />
+                              <Button size="sm" variant="outline" onClick={resetSetForm}>
+                                Cancel
                               </Button>
                             </div>
                           </div>
-                        </div>
+                        ) : (
+                          <div
+                            key={set.id}
+                            className="flex items-center justify-between px-3 py-2 bg-muted rounded-lg text-sm"
+                            data-testid={`row-set-${set.id}`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <span className="font-medium w-6">#{set.setNumber}</span>
+                              {set.isWarmup && (
+                                <span className="text-xs text-muted-foreground">(warmup)</span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-4 text-muted-foreground">
+                              {set.targetReps && <span>{set.targetReps} reps</span>}
+                              {set.targetWeight && <span>{set.targetWeight} lbs</span>}
+                              {set.targetTimeSeconds && <span>{set.targetTimeSeconds}s</span>}
+                              {set.restSeconds && <span className="text-xs">Rest: {set.restSeconds}s</span>}
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6"
+                                  onClick={() => handleEditSet(set)}
+                                  data-testid={`button-edit-set-${set.id}`}
+                                >
+                                  <Edit className="h-3 w-3" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6"
+                                  onClick={() => duplicateSetMutation.mutate({
+                                    templateExerciseId: templateExercise.id,
+                                    set,
+                                    currentSets: templateExercise.plannedSets || []
+                                  })}
+                                  disabled={duplicateSetMutation.isPending}
+                                  data-testid={`button-duplicate-set-${set.id}`}
+                                >
+                                  <Copy className="h-3 w-3" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6"
+                                  onClick={() => deleteSetMutation.mutate({
+                                    templateExerciseId: templateExercise.id,
+                                    setId: set.id
+                                  })}
+                                  data-testid={`button-delete-set-${set.id}`}
+                                >
+                                  <X className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        )
                       ))}
                     </div>
                   )}
@@ -438,7 +631,7 @@ export default function TemplateDetail() {
                       <div className="flex gap-2">
                         <Button
                           size="sm"
-                          onClick={() => handleAddSet(templateExercise.id, templateExercise.plannedSets?.length || 0)}
+                          onClick={() => handleAddSet(templateExercise.id, templateExercise.plannedSets || [])}
                           disabled={addSetMutation.isPending}
                           data-testid="button-save-set"
                         >

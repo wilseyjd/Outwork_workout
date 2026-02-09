@@ -1,7 +1,7 @@
 import { db } from "./db";
-import { eq, desc, and, gte, lte, sql } from "drizzle-orm";
+import { eq, desc, and, gte, lte, sql, or, inArray, not } from "drizzle-orm";
 import {
-  exercises, workoutTemplates, workoutTemplateExercises, plannedSets,
+  exercises, hiddenSystemExercises, workoutTemplates, workoutTemplateExercises, plannedSets,
   workoutSchedule, workoutSessions, sessionExercises, performedSets,
   supplements, supplementSchedule, supplementLogs, bodyWeightLogs,
   type Exercise, type InsertExercise,
@@ -25,7 +25,8 @@ export interface IStorage {
   createExercise(data: InsertExercise): Promise<Exercise>;
   updateExercise(userId: string, id: string, data: Partial<InsertExercise>): Promise<Exercise | undefined>;
   deleteExercise(userId: string, id: string): Promise<void>;
-  
+  hideSystemExercise(userId: string, exerciseId: string): Promise<void>;
+
   // Workout Templates
   getTemplates(userId: string): Promise<any[]>;
   getTemplate(userId: string, id: string): Promise<any | undefined>;
@@ -33,23 +34,25 @@ export interface IStorage {
   updateTemplate(userId: string, id: string, data: Partial<InsertWorkoutTemplate>): Promise<WorkoutTemplate | undefined>;
   deleteTemplate(userId: string, id: string): Promise<void>;
   copyTemplate(userId: string, id: string): Promise<WorkoutTemplate>;
-  
+
   // Template Exercises
   addTemplateExercise(data: InsertWorkoutTemplateExercise): Promise<WorkoutTemplateExercise>;
   removeTemplateExercise(userId: string, templateId: string, id: string): Promise<void>;
   reorderTemplateExercises(userId: string, templateId: string, exerciseIds: string[]): Promise<void>;
-  
+
   // Planned Sets
   addPlannedSet(data: InsertPlannedSet): Promise<PlannedSet>;
+  updatePlannedSet(userId: string, id: string, data: Partial<InsertPlannedSet>): Promise<PlannedSet | undefined>;
+  reorderPlannedSets(userId: string, templateExerciseId: string, setIds: string[]): Promise<void>;
   deletePlannedSet(userId: string, id: string): Promise<void>;
-  
+
   // Schedule
   getScheduleForDate(userId: string, date: string): Promise<any[]>;
   getScheduleForWeek(userId: string, startDate: string): Promise<any[]>;
   getScheduleForRange(userId: string, startDate: string, endDate: string): Promise<any[]>;
   createSchedule(data: InsertWorkoutSchedule): Promise<WorkoutScheduleItem>;
   updateScheduleStatus(userId: string, id: string, status: string): Promise<void>;
-  
+
   // Sessions
   getSessions(userId: string): Promise<any[]>;
   getSession(userId: string, id: string): Promise<any | undefined>;
@@ -57,37 +60,37 @@ export interface IStorage {
   startSession(userId: string, scheduleId: string): Promise<WorkoutSession>;
   createAdhocSession(userId: string): Promise<WorkoutSession>;
   endSession(userId: string, id: string, notes?: string): Promise<WorkoutSession | undefined>;
-  
+
   // Session Exercises
   addSessionExercise(data: InsertSessionExercise): Promise<SessionExercise>;
-  
+
   // Performed Sets
   addPerformedSet(data: InsertPerformedSet): Promise<PerformedSet>;
-  
+
   // Exercise History
   getExerciseHistory(userId: string, exerciseId: string): Promise<any[]>;
-  
+
   // Supplements
   getSupplements(userId: string): Promise<Supplement[]>;
   getSupplement(userId: string, id: string): Promise<Supplement | undefined>;
   createSupplement(data: InsertSupplement): Promise<Supplement>;
   updateSupplement(userId: string, id: string, data: Partial<InsertSupplement>): Promise<Supplement | undefined>;
   deleteSupplement(userId: string, id: string): Promise<void>;
-  
+
   // Supplement Logs
   getSupplementLogs(userId: string): Promise<SupplementLog[]>;
   getTodaySupplementLogs(userId: string): Promise<SupplementLog[]>;
   logSupplementIntake(data: InsertSupplementLog): Promise<SupplementLog>;
   updateSupplementLog(userId: string, id: string, data: { dose?: string; takenAt?: Date; notes?: string | null }): Promise<SupplementLog | undefined>;
   deleteSupplementLog(userId: string, id: string): Promise<void>;
-  
+
   // Body Weight
   getWeightLogs(userId: string): Promise<BodyWeightLog[]>;
   logWeight(data: InsertBodyWeightLog): Promise<BodyWeightLog>;
-  
+
   // Export
   getSessionsForExport(userId: string): Promise<any[]>;
-  
+
   // Analytics
   getExerciseAnalytics(userId: string, exerciseId: string): Promise<{
     date: string;
@@ -101,11 +104,35 @@ export interface IStorage {
 export class DatabaseStorage implements IStorage {
   // Exercises
   async getExercises(userId: string): Promise<Exercise[]> {
-    return await db.select().from(exercises).where(eq(exercises.userId, userId)).orderBy(exercises.name);
+    // Get user's hidden system exercises
+    const hidden = await db.select()
+      .from(hiddenSystemExercises)
+      .where(eq(hiddenSystemExercises.userId, userId));
+    const hiddenIds = hidden.map(h => h.exerciseId);
+
+    // Get user's personal exercises + system exercises that aren't hidden
+    const query = db.select().from(exercises).where(
+      or(
+        eq(exercises.userId, userId),
+        and(
+          eq(exercises.isSystem, true),
+          hiddenIds.length > 0 ? not(inArray(exercises.id, hiddenIds)) : sql`true`
+        )
+      )
+    ).orderBy(exercises.name);
+
+    return await query;
   }
 
   async getExercise(userId: string, id: string): Promise<Exercise | undefined> {
-    const [exercise] = await db.select().from(exercises).where(and(eq(exercises.id, id), eq(exercises.userId, userId)));
+    const [exercise] = await db.select()
+      .from(exercises)
+      .where(
+        and(
+          eq(exercises.id, id),
+          or(eq(exercises.userId, userId), eq(exercises.isSystem, true))
+        )
+      );
     return exercise;
   }
 
@@ -115,26 +142,32 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateExercise(userId: string, id: string, data: Partial<InsertExercise>): Promise<Exercise | undefined> {
+    // Ensure we only update exercises owned by the user (not system exercises)
     const [exercise] = await db.update(exercises)
       .set({ ...data, updatedAt: new Date() })
-      .where(and(eq(exercises.id, id), eq(exercises.userId, userId)))
+      .where(and(eq(exercises.id, id), eq(exercises.userId, userId), eq(exercises.isSystem, false)))
       .returning();
     return exercise;
   }
 
   async deleteExercise(userId: string, id: string): Promise<void> {
-    await db.delete(exercises).where(and(eq(exercises.id, id), eq(exercises.userId, userId)));
+    // Only delete exercises owned by the user
+    await db.delete(exercises).where(and(eq(exercises.id, id), eq(exercises.userId, userId), eq(exercises.isSystem, false)));
+  }
+
+  async hideSystemExercise(userId: string, exerciseId: string): Promise<void> {
+    await db.insert(hiddenSystemExercises).values({ userId, exerciseId });
   }
 
   // Workout Templates
   async getTemplates(userId: string): Promise<any[]> {
     const templates = await db.select().from(workoutTemplates).where(eq(workoutTemplates.userId, userId)).orderBy(desc(workoutTemplates.createdAt));
-    
+
     const templatesWithCounts = await Promise.all(templates.map(async (template) => {
       const exercisesList = await db.select().from(workoutTemplateExercises).where(eq(workoutTemplateExercises.templateId, template.id));
       return { ...template, exerciseCount: exercisesList.length };
     }));
-    
+
     return templatesWithCounts;
   }
 
@@ -241,6 +274,28 @@ export class DatabaseStorage implements IStorage {
     return set;
   }
 
+  async updatePlannedSet(userId: string, id: string, data: Partial<InsertPlannedSet>): Promise<PlannedSet | undefined> {
+    const [set] = await db.update(plannedSets)
+      .set(data)
+      .where(and(eq(plannedSets.id, id), eq(plannedSets.userId, userId)))
+      .returning();
+    return set;
+  }
+
+  async reorderPlannedSets(userId: string, templateExerciseId: string, setIds: string[]): Promise<void> {
+    for (let i = 0; i < setIds.length; i++) {
+      await db.update(plannedSets)
+        .set({ setNumber: i + 1 })
+        .where(
+          and(
+            eq(plannedSets.id, setIds[i]),
+            eq(plannedSets.userId, userId),
+            eq(plannedSets.templateExerciseId, templateExerciseId)
+          )
+        );
+    }
+  }
+
   async deletePlannedSet(userId: string, id: string): Promise<void> {
     await db.delete(plannedSets).where(and(eq(plannedSets.id, id), eq(plannedSets.userId, userId)));
   }
@@ -248,7 +303,7 @@ export class DatabaseStorage implements IStorage {
   // Schedule
   async getScheduleForDate(userId: string, date: string): Promise<any[]> {
     const schedules = await db.select().from(workoutSchedule).where(and(eq(workoutSchedule.userId, userId), eq(workoutSchedule.scheduledDate, date)));
-    
+
     return Promise.all(schedules.map(async (s) => {
       const [template] = await db.select().from(workoutTemplates).where(eq(workoutTemplates.id, s.templateId));
       return { ...s, template };
@@ -311,7 +366,7 @@ export class DatabaseStorage implements IStorage {
       const sets = await db.select().from(performedSets).where(
         sql`${performedSets.sessionExerciseId} IN (SELECT id FROM session_exercises WHERE session_id = ${session.id})`
       );
-      
+
       return {
         ...session,
         template,
@@ -336,7 +391,7 @@ export class DatabaseStorage implements IStorage {
     const exercisesWithDetails = await Promise.all(sessionExs.map(async (se) => {
       const [exercise] = await db.select().from(exercises).where(eq(exercises.id, se.exerciseId));
       const sets = await db.select().from(performedSets).where(eq(performedSets.sessionExerciseId, se.id)).orderBy(performedSets.setNumber);
-      
+
       let plannedSetsList: PlannedSet[] = [];
       if (session.templateId) {
         const [templateExercise] = await db.select().from(workoutTemplateExercises)
@@ -345,7 +400,7 @@ export class DatabaseStorage implements IStorage {
           plannedSetsList = await db.select().from(plannedSets).where(eq(plannedSets.templateExerciseId, templateExercise.id)).orderBy(plannedSets.setNumber);
         }
       }
-      
+
       return { ...se, exercise, performedSets: sets, plannedSets: plannedSetsList };
     }));
 
@@ -357,15 +412,15 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(workoutSessions.userId, userId), sql`${workoutSessions.endedAt} IS NULL`))
       .orderBy(desc(workoutSessions.startedAt))
       .limit(1);
-    
+
     if (!session) return null;
-    
+
     let template = null;
     if (session.templateId) {
       const [t] = await db.select().from(workoutTemplates).where(eq(workoutTemplates.id, session.templateId));
       template = t;
     }
-    
+
     return { ...session, template };
   }
 
@@ -544,12 +599,12 @@ export class DatabaseStorage implements IStorage {
         const sets = await db.select().from(performedSets)
           .where(eq(performedSets.sessionExerciseId, se.id))
           .orderBy(performedSets.setNumber);
-        
+
         let plannedSetsList: PlannedSet[] = [];
         if (session.templateId) {
           const [templateExercise] = await db.select().from(workoutTemplateExercises)
             .where(and(
-              eq(workoutTemplateExercises.templateId, session.templateId), 
+              eq(workoutTemplateExercises.templateId, session.templateId),
               eq(workoutTemplateExercises.exerciseId, se.exerciseId)
             ));
           if (templateExercise) {
@@ -558,18 +613,18 @@ export class DatabaseStorage implements IStorage {
               .orderBy(plannedSets.setNumber);
           }
         }
-        
-        return { 
+
+        return {
           exerciseName: exercise?.name || "Unknown",
-          performedSets: sets, 
-          plannedSets: plannedSetsList 
+          performedSets: sets,
+          plannedSets: plannedSetsList
         };
       }));
 
-      return { 
-        ...session, 
-        templateName, 
-        exercises: exercisesWithDetails 
+      return {
+        ...session,
+        templateName,
+        exercises: exercisesWithDetails
       };
     }));
 
@@ -591,17 +646,17 @@ export class DatabaseStorage implements IStorage {
       bestTime: sql<number>`MIN(${performedSets.actualTimeSeconds})`.as('best_time'),
       totalSets: sql<number>`COUNT(${performedSets.id})`.as('total_sets'),
     })
-    .from(performedSets)
-    .innerJoin(sessionExercises, eq(performedSets.sessionExerciseId, sessionExercises.id))
-    .innerJoin(workoutSessions, eq(sessionExercises.sessionId, workoutSessions.id))
-    .where(and(
-      eq(performedSets.userId, userId),
-      eq(sessionExercises.exerciseId, exerciseId),
-      eq(performedSets.isWarmup, false)
-    ))
-    .groupBy(sql`DATE(${workoutSessions.startedAt})`)
-    .orderBy(sql`DATE(${workoutSessions.startedAt})`);
-    
+      .from(performedSets)
+      .innerJoin(sessionExercises, eq(performedSets.sessionExerciseId, sessionExercises.id))
+      .innerJoin(workoutSessions, eq(sessionExercises.sessionId, workoutSessions.id))
+      .where(and(
+        eq(performedSets.userId, userId),
+        eq(sessionExercises.exerciseId, exerciseId),
+        eq(performedSets.isWarmup, false)
+      ))
+      .groupBy(sql`DATE(${workoutSessions.startedAt})`)
+      .orderBy(sql`DATE(${workoutSessions.startedAt})`);
+
     return results.map(r => ({
       date: r.date,
       maxWeight: r.maxWeight ? Number(r.maxWeight) : null,

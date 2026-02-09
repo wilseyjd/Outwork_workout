@@ -43,7 +43,7 @@ export default function Plan() {
   const [weeksToShow, setWeeksToShow] = useState(2);
 
   const getWeekDays = (weekStart: Date) => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
-  
+
   const displayWeeks = Array.from({ length: weeksToShow }, (_, i) => ({
     start: addWeeks(displayWeekStart, i),
     days: getWeekDays(addWeeks(displayWeekStart, i)),
@@ -67,7 +67,7 @@ export default function Plan() {
   });
 
   const displayEndDate = addDays(displayWeekStart, weeksToShow * 7 - 1);
-  
+
   const { data: scheduleData } = useQuery<ScheduleWithTemplate[]>({
     queryKey: ["/api/schedule/range", format(displayWeekStart, "yyyy-MM-dd"), format(displayEndDate, "yyyy-MM-dd")],
   });
@@ -155,7 +155,7 @@ export default function Plan() {
             <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">Plan</h1>
             <p className="text-muted-foreground text-sm mt-1">Build and schedule workouts</p>
           </div>
-          <Button variant="ghost" size="sm" asChild data-testid="button-exercises">
+          <Button variant="secondary" size="sm" asChild data-testid="button-exercises">
             <Link href="/exercises">
               <ListPlus className="h-4 w-4 mr-1" />
               Exercises
@@ -165,7 +165,7 @@ export default function Plan() {
 
         <Tabs defaultValue="templates" className="space-y-4">
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="templates" data-testid="tab-templates">Templates</TabsTrigger>
+            <TabsTrigger value="templates" data-testid="tab-templates">Workouts</TabsTrigger>
             <TabsTrigger value="schedule" data-testid="tab-schedule">Schedule</TabsTrigger>
           </TabsList>
 
@@ -174,12 +174,12 @@ export default function Plan() {
               <DialogTrigger asChild>
                 <Button className="w-full" data-testid="button-new-template">
                   <Plus className="h-4 w-4 mr-2" />
-                  Create Template
+                  Create Workout
                 </Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>New Workout Template</DialogTitle>
+                  <DialogTitle>New Workout</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4 pt-4">
                   <div className="space-y-2">
@@ -202,16 +202,16 @@ export default function Plan() {
                       data-testid="input-template-notes"
                     />
                   </div>
-                  <Button 
-                    className="w-full" 
-                    onClick={() => createTemplateMutation.mutate({ 
-                      name: newTemplateName, 
-                      notes: newTemplateNotes || undefined 
+                  <Button
+                    className="w-full"
+                    onClick={() => createTemplateMutation.mutate({
+                      name: newTemplateName,
+                      notes: newTemplateNotes || undefined
                     })}
                     disabled={!newTemplateName.trim() || createTemplateMutation.isPending}
                     data-testid="button-create-template"
                   >
-                    Create Template
+                    Create Workout
                   </Button>
                 </div>
               </DialogContent>
@@ -222,8 +222,8 @@ export default function Plan() {
             ) : templates && templates.length > 0 ? (
               <div className="space-y-3">
                 {templates.map((template) => (
-                  <Card 
-                    key={template.id} 
+                  <Card
+                    key={template.id}
                     className="p-4 hover-elevate"
                     data-testid={`card-template-${template.id}`}
                   >
@@ -268,7 +268,7 @@ export default function Plan() {
                               <Copy className="h-4 w-4 mr-2" />
                               Duplicate
                             </DropdownMenuItem>
-                            <DropdownMenuItem 
+                            <DropdownMenuItem
                               onClick={() => deleteTemplateMutation.mutate(template.id)}
                               className="text-destructive focus:text-destructive"
                             >
@@ -285,12 +285,8 @@ export default function Plan() {
             ) : (
               <EmptyState
                 icon={Dumbbell}
-                title="No templates yet"
-                description="Create your first workout template to get started"
-                action={{
-                  label: "Create Template",
-                  onClick: () => setNewTemplateOpen(true),
-                }}
+                title="No workouts yet"
+                description="Create your first workout to get started"
               />
             )}
           </TabsContent>
@@ -349,7 +345,7 @@ export default function Plan() {
                       const isToday = isSameDay(day, new Date());
                       const daySchedule = getScheduleForDay(day);
                       const isPast = day < new Date() && !isToday;
-                      
+
                       return (
                         <button
                           key={day.toISOString()}
@@ -359,13 +355,12 @@ export default function Plan() {
                               setScheduleOpen(true);
                             }
                           }}
-                          className={`flex flex-col items-center p-2 rounded-lg transition-colors ${
-                            isToday 
-                              ? "bg-primary text-primary-foreground" 
-                              : isPast
+                          className={`flex flex-col items-center p-2 rounded-lg transition-colors ${isToday
+                            ? "bg-primary text-primary-foreground"
+                            : isPast
                               ? "text-muted-foreground hover:bg-muted"
                               : "hover:bg-muted"
-                          }`}
+                            }`}
                           data-testid={`button-day-${format(day, "yyyy-MM-dd")}`}
                         >
                           <span className="text-xs font-medium">{format(day, "EEE")}</span>
@@ -373,9 +368,8 @@ export default function Plan() {
                             {format(day, "d")}
                           </span>
                           {daySchedule.length > 0 && (
-                            <div className={`w-1.5 h-1.5 rounded-full mt-1 ${
-                              isToday ? "bg-primary-foreground" : "bg-primary"
-                            }`} />
+                            <div className={`w-1.5 h-1.5 rounded-full mt-1 ${isToday ? "bg-primary-foreground" : "bg-primary"
+                              }`} />
                           )}
                         </button>
                       );
@@ -430,11 +424,10 @@ export default function Plan() {
                     <button
                       key={template.id}
                       onClick={() => setSelectedTemplateId(template.id)}
-                      className={`p-3 rounded-lg border text-left transition-colors ${
-                        selectedTemplateId === template.id
-                          ? "border-primary bg-primary/5"
-                          : "border-border hover:bg-muted"
-                      }`}
+                      className={`p-3 rounded-lg border text-left transition-colors ${selectedTemplateId === template.id
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:bg-muted"
+                        }`}
                       data-testid={`button-select-template-${template.id}`}
                     >
                       <p className="font-medium">{template.name}</p>
@@ -459,8 +452,8 @@ export default function Plan() {
                   </p>
                 )}
               </div>
-              <Button 
-                className="w-full" 
+              <Button
+                className="w-full"
                 onClick={handleSchedule}
                 disabled={!selectedTemplateId || !selectedDate || scheduleWorkoutMutation.isPending}
                 data-testid="button-confirm-schedule"

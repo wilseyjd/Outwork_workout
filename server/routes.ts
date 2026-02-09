@@ -34,7 +34,7 @@ export async function registerRoutes(
   // ============================================
   // EXERCISES
   // ============================================
-  
+
   app.get("/api/exercises", isAuthenticated, async (req, res) => {
     try {
       const userId = getUserId(req);
@@ -49,7 +49,7 @@ export async function registerRoutes(
   app.get("/api/exercises/:id", isAuthenticated, async (req, res) => {
     try {
       const userId = getUserId(req);
-      const exercise = await storage.getExercise(userId, req.params.id);
+      const exercise = await storage.getExercise(userId, req.params.id as string);
       if (!exercise) {
         return res.status(404).json({ message: "Exercise not found" });
       }
@@ -63,7 +63,7 @@ export async function registerRoutes(
   app.get("/api/exercises/:id/history", isAuthenticated, async (req, res) => {
     try {
       const userId = getUserId(req);
-      const history = await storage.getExerciseHistory(userId, req.params.id);
+      const history = await storage.getExerciseHistory(userId, req.params.id as string);
       res.json(history);
     } catch (error) {
       console.error("Error fetching exercise history:", error);
@@ -89,10 +89,17 @@ export async function registerRoutes(
   app.patch("/api/exercises/:id", isAuthenticated, async (req, res) => {
     try {
       const userId = getUserId(req);
-      const exercise = await storage.updateExercise(userId, req.params.id, req.body);
-      if (!exercise) {
+      const existing = await storage.getExercise(userId, req.params.id as string);
+
+      if (!existing) {
         return res.status(404).json({ message: "Exercise not found" });
       }
+
+      if (existing.isSystem) {
+        return res.status(403).json({ message: "System exercises cannot be modified" });
+      }
+
+      const exercise = await storage.updateExercise(userId, req.params.id as string, req.body);
       res.json(exercise);
     } catch (error) {
       console.error("Error updating exercise:", error);
@@ -103,7 +110,18 @@ export async function registerRoutes(
   app.delete("/api/exercises/:id", isAuthenticated, async (req, res) => {
     try {
       const userId = getUserId(req);
-      await storage.deleteExercise(userId, req.params.id);
+      const existing = await storage.getExercise(userId, req.params.id as string);
+
+      if (!existing) {
+        return res.status(204).send();
+      }
+
+      if (existing.isSystem) {
+        await storage.hideSystemExercise(userId, req.params.id as string);
+      } else {
+        await storage.deleteExercise(userId, req.params.id as string);
+      }
+
       res.status(204).send();
     } catch (error) {
       console.error("Error deleting exercise:", error);
@@ -114,7 +132,7 @@ export async function registerRoutes(
   app.post("/api/exercises/:id/copy", isAuthenticated, async (req, res) => {
     try {
       const userId = getUserId(req);
-      const original = await storage.getExercise(userId, req.params.id);
+      const original = await storage.getExercise(userId, req.params.id as string);
       if (!original) {
         return res.status(404).json({ message: "Exercise not found" });
       }
@@ -149,7 +167,7 @@ export async function registerRoutes(
   app.get("/api/templates/:id", isAuthenticated, async (req, res) => {
     try {
       const userId = getUserId(req);
-      const template = await storage.getTemplate(userId, req.params.id);
+      const template = await storage.getTemplate(userId, req.params.id as string);
       if (!template) {
         return res.status(404).json({ message: "Template not found" });
       }
@@ -178,7 +196,7 @@ export async function registerRoutes(
   app.patch("/api/templates/:id", isAuthenticated, async (req, res) => {
     try {
       const userId = getUserId(req);
-      const template = await storage.updateTemplate(userId, req.params.id, req.body);
+      const template = await storage.updateTemplate(userId, req.params.id as string, req.body);
       if (!template) {
         return res.status(404).json({ message: "Template not found" });
       }
@@ -192,7 +210,7 @@ export async function registerRoutes(
   app.delete("/api/templates/:id", isAuthenticated, async (req, res) => {
     try {
       const userId = getUserId(req);
-      await storage.deleteTemplate(userId, req.params.id);
+      await storage.deleteTemplate(userId, req.params.id as string);
       res.status(204).send();
     } catch (error) {
       console.error("Error deleting template:", error);
@@ -203,7 +221,7 @@ export async function registerRoutes(
   app.post("/api/templates/:id/copy", isAuthenticated, async (req, res) => {
     try {
       const userId = getUserId(req);
-      const template = await storage.copyTemplate(userId, req.params.id);
+      const template = await storage.copyTemplate(userId, req.params.id as string);
       res.status(201).json(template);
     } catch (error) {
       console.error("Error copying template:", error);
@@ -218,7 +236,7 @@ export async function registerRoutes(
       const templateExercise = await storage.addTemplateExercise({
         ...req.body,
         userId,
-        templateId: req.params.templateId,
+        templateId: req.params.templateId as string,
       });
       res.status(201).json(templateExercise);
     } catch (error) {
@@ -230,7 +248,7 @@ export async function registerRoutes(
   app.delete("/api/templates/:templateId/exercises/:id", isAuthenticated, async (req, res) => {
     try {
       const userId = getUserId(req);
-      await storage.removeTemplateExercise(userId, req.params.templateId, req.params.id);
+      await storage.removeTemplateExercise(userId, req.params.templateId as string, req.params.id as string);
       res.status(204).send();
     } catch (error) {
       console.error("Error removing template exercise:", error);
@@ -274,6 +292,28 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error deleting planned set:", error);
       res.status(500).json({ message: "Failed to delete planned set" });
+    }
+  });
+
+  app.patch("/api/templates/:templateId/exercises/:exerciseId/sets/:id", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const set = await storage.updatePlannedSet(userId, req.params.id, req.body);
+      res.json(set);
+    } catch (error) {
+      console.error("Error updating planned set:", error);
+      res.status(500).json({ message: "Failed to update planned set" });
+    }
+  });
+
+  app.post("/api/templates/:templateId/exercises/:exerciseId/sets/reorder", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      await storage.reorderPlannedSets(userId, req.params.exerciseId, req.body.setIds);
+      res.status(200).send();
+    } catch (error) {
+      console.error("Error reordering planned sets:", error);
+      res.status(500).json({ message: "Failed to reorder planned sets" });
     }
   });
 
@@ -366,7 +406,7 @@ export async function registerRoutes(
   app.get("/api/sessions/:id", isAuthenticated, async (req, res) => {
     try {
       const userId = getUserId(req);
-      const session = await storage.getSession(userId, req.params.id);
+      const session = await storage.getSession(userId, req.params.id as string);
       if (!session) {
         return res.status(404).json({ message: "Session not found" });
       }
@@ -380,7 +420,7 @@ export async function registerRoutes(
   app.post("/api/sessions/start/:scheduleId", isAuthenticated, async (req, res) => {
     try {
       const userId = getUserId(req);
-      const session = await storage.startSession(userId, req.params.scheduleId);
+      const session = await storage.startSession(userId, req.params.scheduleId as string);
       res.status(201).json(session);
     } catch (error) {
       console.error("Error starting session:", error);
@@ -402,7 +442,7 @@ export async function registerRoutes(
   app.post("/api/sessions/:id/end", isAuthenticated, async (req, res) => {
     try {
       const userId = getUserId(req);
-      const session = await storage.endSession(userId, req.params.id, req.body.notes);
+      const session = await storage.endSession(userId, req.params.id as string, req.body.notes);
       res.json(session);
     } catch (error) {
       console.error("Error ending session:", error);
@@ -489,7 +529,7 @@ export async function registerRoutes(
   app.delete("/api/supplements/:id", isAuthenticated, async (req, res) => {
     try {
       const userId = getUserId(req);
-      await storage.deleteSupplement(userId, req.params.id);
+      await storage.deleteSupplement(userId, req.params.id as string);
       res.status(204).send();
     } catch (error) {
       console.error("Error deleting supplement:", error);
@@ -543,7 +583,7 @@ export async function registerRoutes(
       if (req.body.dose !== undefined) updateData.dose = req.body.dose;
       if (req.body.takenAt !== undefined) updateData.takenAt = new Date(req.body.takenAt);
       if (req.body.notes !== undefined) updateData.notes = req.body.notes;
-      
+
       const log = await storage.updateSupplementLog(userId, id, updateData);
       if (!log) {
         return res.status(404).json({ message: "Log not found" });

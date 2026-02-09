@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PageSkeleton, ListSkeleton } from "@/components/loading-skeleton";
 import { EmptyState } from "@/components/empty-state";
-import { ArrowLeft, Dumbbell, TrendingUp, History, Clock } from "lucide-react";
+import { ArrowLeft, Dumbbell, TrendingUp, History, Clock, ExternalLink } from "lucide-react";
 import { format } from "date-fns";
 import type { Exercise, PerformedSet, WorkoutSession } from "@shared/schema";
 
@@ -71,6 +71,25 @@ export default function ExerciseDetail() {
 
   const sessionGroups = groupedHistory ? Object.values(groupedHistory).slice(0, 5) : [];
 
+  const formatUrl = (url: string) => {
+    if (!url) return "";
+    if (url.startsWith("http://") || url.startsWith("https://")) {
+      return url;
+    }
+    return `https://${url}`;
+  };
+
+  const getDisplayUrl = (url: string) => {
+    if (!url) return "";
+    try {
+      const formatted = formatUrl(url);
+      const urlObj = new URL(formatted);
+      return urlObj.hostname.replace("www.", "");
+    } catch (e) {
+      return "View External Info";
+    }
+  };
+
   return (
     <AppLayout>
       <div className="space-y-6">
@@ -96,12 +115,21 @@ export default function ExerciseDetail() {
           </Card>
         )}
 
+        {exercise.url && (
+          <Button variant="outline" className="w-full justify-start gap-2" asChild data-testid="button-exercise-url">
+            <a href={formatUrl(exercise.url)} target="_blank" rel="noopener noreferrer">
+              <ExternalLink className="h-4 w-4" />
+              {getDisplayUrl(exercise.url)}
+            </a>
+          </Button>
+        )}
+
         <div className="space-y-3">
           <h2 className="font-semibold text-lg flex items-center gap-2">
             <TrendingUp className="h-5 w-5 text-primary" />
             Last Time
           </h2>
-          
+
           {lastSession ? (
             <Card className="p-4 bg-primary/5 border-primary/20" data-testid="card-last-time">
               <p className="text-sm text-muted-foreground mb-3">
@@ -144,7 +172,7 @@ export default function ExerciseDetail() {
               <History className="h-5 w-5 text-muted-foreground" />
               Recent History
             </h2>
-            
+
             {historyLoading ? (
               <ListSkeleton count={3} />
             ) : (
