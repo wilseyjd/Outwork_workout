@@ -13,7 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { ListSkeleton } from "@/components/loading-skeleton";
 import { EmptyState } from "@/components/empty-state";
-import { Plus, Dumbbell, Calendar, ChevronRight, ChevronLeft, Edit, Trash2, Copy, MoreVertical, ListPlus, CalendarDays } from "lucide-react";
+import { Plus, Dumbbell, Calendar, ChevronRight, ChevronLeft, Edit, Trash2, Copy, MoreVertical, ListPlus, CalendarDays, Repeat } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Link, useLocation } from "wouter";
 import { format, addDays, addWeeks, subWeeks, startOfWeek, endOfWeek, isSameDay, isWithinInterval } from "date-fns";
@@ -155,12 +155,20 @@ export default function Plan() {
             <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">Plan</h1>
             <p className="text-muted-foreground text-sm mt-1">Build and schedule workouts</p>
           </div>
-          <Button variant="secondary" size="sm" asChild data-testid="button-exercises">
-            <Link href="/exercises">
-              <ListPlus className="h-4 w-4 mr-1" />
-              Exercises
-            </Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" size="sm" asChild data-testid="button-exercises">
+              <Link href="/exercises">
+                <ListPlus className="h-4 w-4 mr-1" />
+                Exercises
+              </Link>
+            </Button>
+            <Button variant="secondary" size="sm" asChild data-testid="button-circuits">
+              <Link href="/circuits">
+                <Repeat className="h-4 w-4 mr-1" />
+                Circuits
+              </Link>
+            </Button>
+          </div>
         </div>
 
         <Tabs defaultValue="templates" className="space-y-4">

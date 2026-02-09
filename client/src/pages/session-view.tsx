@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PageSkeleton } from "@/components/loading-skeleton";
 import { EmptyState } from "@/components/empty-state";
-import { ArrowLeft, Dumbbell, Clock, Calendar, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Dumbbell, Clock, Calendar, CheckCircle2, Repeat } from "lucide-react";
 import { format } from "date-fns";
 import type { WorkoutSession, SessionExercise, PerformedSet, Exercise } from "@shared/schema";
 
@@ -18,6 +18,7 @@ interface SessionExerciseWithDetails extends SessionExercise {
 interface SessionWithDetails extends WorkoutSession {
   exercises?: SessionExerciseWithDetails[];
   templateName?: string;
+  circuitNames?: Record<string, string>;
 }
 
 export default function SessionView() {
@@ -127,48 +128,99 @@ export default function SessionView() {
         <div className="space-y-4">
           <h2 className="font-semibold text-lg">Exercises</h2>
           {session.exercises && session.exercises.length > 0 ? (
-            session.exercises.map((sessionExercise, index) => (
-              <Card key={sessionExercise.id} className="p-4" data-testid={`card-exercise-${sessionExercise.id}`}>
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-8 h-8 rounded bg-primary/10 flex items-center justify-center text-primary font-semibold text-sm">
-                    {index + 1}
-                  </div>
-                  <div>
-                    <p className="font-medium">{sessionExercise.exercise?.name}</p>
-                    {sessionExercise.exercise?.category && (
-                      <Badge variant="secondary" className="text-xs">
-                        {sessionExercise.exercise.category}
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-
-                {sessionExercise.performedSets && sessionExercise.performedSets.length > 0 && (
-                  <div className="space-y-1">
-                    {sessionExercise.performedSets.map((set) => (
-                      <div
-                        key={set.id}
-                        className="flex items-center justify-between px-3 py-2 bg-muted rounded-lg text-sm"
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="text-muted-foreground w-12">Set {set.setNumber}</span>
-                          {set.isWarmup && (
-                            <Badge variant="secondary" className="text-xs">warmup</Badge>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-3">
-                          {set.actualWeight && (
-                            <span className="font-medium">{set.actualWeight} lbs</span>
-                          )}
-                          {set.actualReps && <span>{set.actualReps} reps</span>}
-                          {set.actualTimeSeconds && <span>{set.actualTimeSeconds}s</span>}
-                        </div>
+            (() => {
+              const renderExerciseCard = (sessionExercise: SessionExerciseWithDetails, displayIndex: number) => (
+                <Card key={sessionExercise.id} className="p-4" data-testid={`card-exercise-${sessionExercise.id}`}>
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-8 h-8 rounded bg-primary/10 flex items-center justify-center text-primary font-semibold text-sm">
+                      {displayIndex}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium truncate">{sessionExercise.exercise?.name}</p>
+                        {sessionExercise.circuitRound && (
+                          <Badge variant="outline" className="text-xs shrink-0">
+                            Rd {sessionExercise.circuitRound}
+                          </Badge>
+                        )}
                       </div>
-                    ))}
+                      {sessionExercise.exercise?.category && (
+                        <Badge variant="secondary" className="text-xs">
+                          {sessionExercise.exercise.category}
+                        </Badge>
+                      )}
+                    </div>
                   </div>
-                )}
-              </Card>
-            ))
+
+                  {sessionExercise.performedSets && sessionExercise.performedSets.length > 0 && (
+                    <div className="space-y-1">
+                      {sessionExercise.performedSets.map((set) => (
+                        <div
+                          key={set.id}
+                          className="flex items-center justify-between px-3 py-2 bg-muted rounded-lg text-sm"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-muted-foreground w-12">Set {set.setNumber}</span>
+                            {set.isWarmup && (
+                              <Badge variant="secondary" className="text-xs">warmup</Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3">
+                            {set.actualWeight && (
+                              <span className="font-medium">{set.actualWeight} lbs</span>
+                            )}
+                            {set.actualReps && <span>{set.actualReps} reps</span>}
+                            {set.actualTimeSeconds && <span>{set.actualTimeSeconds}s</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Card>
+              );
+
+              const elements: JSX.Element[] = [];
+              let displayIndex = 1;
+              let i = 0;
+              const exercises = session.exercises!;
+
+              while (i < exercises.length) {
+                const ex = exercises[i];
+                if (ex.circuitId) {
+                  // Collect all consecutive exercises with the same circuitId
+                  const circuitExercises: SessionExerciseWithDetails[] = [];
+                  const currentCircuitId = ex.circuitId;
+                  while (i < exercises.length && exercises[i].circuitId === currentCircuitId) {
+                    circuitExercises.push(exercises[i]);
+                    i++;
+                  }
+                  const circuitName = session.circuitNames?.[currentCircuitId] || "Circuit";
+                  const totalRounds = circuitExercises[0]?.circuitRounds || 1;
+
+                  elements.push(
+                    <div key={`circuit-${currentCircuitId}-${displayIndex}`} className="border-l-4 border-primary pl-3 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <Repeat className="h-4 w-4 text-primary" />
+                        <span className="font-semibold text-sm">{circuitName}</span>
+                        <Badge variant="secondary" className="text-xs">
+                          {totalRounds} {totalRounds === 1 ? "round" : "rounds"}
+                        </Badge>
+                      </div>
+                      {circuitExercises.map((ce) => {
+                        const card = renderExerciseCard(ce, displayIndex);
+                        displayIndex++;
+                        return card;
+                      })}
+                    </div>
+                  );
+                } else {
+                  elements.push(renderExerciseCard(ex, displayIndex));
+                  displayIndex++;
+                  i++;
+                }
+              }
+              return elements;
+            })()
           ) : (
             <Card className="p-6 text-center text-muted-foreground">
               <p>No exercises recorded</p>

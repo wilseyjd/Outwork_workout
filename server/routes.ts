@@ -5,6 +5,8 @@ import { setupAuth, isAuthenticated, getUserId } from "./auth";
 import { z, ZodSchema } from "zod";
 import {
   insertExerciseSchema,
+  insertCircuitSchema,
+  insertCircuitExerciseSchema,
   insertWorkoutTemplateSchema,
   insertWorkoutTemplateExerciseSchema,
   insertPlannedSetSchema,
@@ -146,6 +148,158 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error copying exercise:", error);
       res.status(500).json({ message: "Failed to copy exercise" });
+    }
+  });
+
+  // ============================================
+  // CIRCUITS
+  // ============================================
+
+  app.get("/api/circuits", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const circuits = await storage.getCircuits(userId);
+      res.json(circuits);
+    } catch (error) {
+      console.error("Error fetching circuits:", error);
+      res.status(500).json({ message: "Failed to fetch circuits" });
+    }
+  });
+
+  app.get("/api/circuits/:id", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const circuit = await storage.getCircuit(userId, req.params.id as string);
+      if (!circuit) {
+        return res.status(404).json({ message: "Circuit not found" });
+      }
+      res.json(circuit);
+    } catch (error) {
+      console.error("Error fetching circuit:", error);
+      res.status(500).json({ message: "Failed to fetch circuit" });
+    }
+  });
+
+  app.post("/api/circuits", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const validation = validateBody(insertCircuitSchema.omit({ userId: true }), req.body);
+      if (!validation.success) {
+        return res.status(400).json({ message: validation.error });
+      }
+      const circuit = await storage.createCircuit({ ...validation.data, userId });
+      res.status(201).json(circuit);
+    } catch (error) {
+      console.error("Error creating circuit:", error);
+      res.status(500).json({ message: "Failed to create circuit" });
+    }
+  });
+
+  app.patch("/api/circuits/:id", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const existing = await storage.getCircuit(userId, req.params.id as string);
+      if (!existing) {
+        return res.status(404).json({ message: "Circuit not found" });
+      }
+      if (existing.isSystem) {
+        return res.status(403).json({ message: "System circuits cannot be modified" });
+      }
+      const circuit = await storage.updateCircuit(userId, req.params.id as string, req.body);
+      res.json(circuit);
+    } catch (error) {
+      console.error("Error updating circuit:", error);
+      res.status(500).json({ message: "Failed to update circuit" });
+    }
+  });
+
+  app.delete("/api/circuits/:id", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const existing = await storage.getCircuit(userId, req.params.id as string);
+      if (!existing) {
+        return res.status(204).send();
+      }
+      if (existing.isSystem) {
+        await storage.hideSystemCircuit(userId, req.params.id as string);
+      } else {
+        await storage.deleteCircuit(userId, req.params.id as string);
+      }
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting circuit:", error);
+      res.status(500).json({ message: "Failed to delete circuit" });
+    }
+  });
+
+  app.post("/api/circuits/:id/copy", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const circuit = await storage.copyCircuit(userId, req.params.id as string);
+      res.status(201).json(circuit);
+    } catch (error) {
+      console.error("Error copying circuit:", error);
+      res.status(500).json({ message: "Failed to copy circuit" });
+    }
+  });
+
+  // Circuit Exercises
+  app.post("/api/circuits/:circuitId/exercises", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const circuitExercise = await storage.addCircuitExercise({
+        ...req.body,
+        userId,
+        circuitId: req.params.circuitId as string,
+      });
+      res.status(201).json(circuitExercise);
+    } catch (error) {
+      console.error("Error adding circuit exercise:", error);
+      res.status(500).json({ message: "Failed to add exercise to circuit" });
+    }
+  });
+
+  app.delete("/api/circuits/:circuitId/exercises/:id", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      await storage.removeCircuitExercise(userId, req.params.circuitId as string, req.params.id as string);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error removing circuit exercise:", error);
+      res.status(500).json({ message: "Failed to remove exercise from circuit" });
+    }
+  });
+
+  app.patch("/api/circuits/:circuitId/exercises/reorder", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const { exerciseIds } = req.body as { exerciseIds: string[] };
+      await storage.reorderCircuitExercises(userId, req.params.circuitId as string, exerciseIds);
+      res.status(200).json({ success: true });
+    } catch (error) {
+      console.error("Error reordering circuit exercises:", error);
+      res.status(500).json({ message: "Failed to reorder circuit exercises" });
+    }
+  });
+
+  app.patch("/api/circuits/:circuitId/exercises/:id", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const { restAfterSeconds, defaultReps, defaultWeight, defaultTimeSeconds, notes } = req.body;
+      const updateData: Record<string, any> = {};
+      if (restAfterSeconds !== undefined) updateData.restAfterSeconds = restAfterSeconds;
+      if (defaultReps !== undefined) updateData.defaultReps = defaultReps;
+      if (defaultWeight !== undefined) updateData.defaultWeight = defaultWeight;
+      if (defaultTimeSeconds !== undefined) updateData.defaultTimeSeconds = defaultTimeSeconds;
+      if (notes !== undefined) updateData.notes = notes;
+      const ce = await storage.updateCircuitExercise(userId, req.params.id as string, updateData);
+      if (!ce) {
+        return res.status(404).json({ message: "Circuit exercise not found" });
+      }
+      res.json(ce);
+    } catch (error) {
+      console.error("Error updating circuit exercise:", error);
+      res.status(500).json({ message: "Failed to update circuit exercise" });
     }
   });
 
@@ -314,6 +468,42 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error reordering planned sets:", error);
       res.status(500).json({ message: "Failed to reorder planned sets" });
+    }
+  });
+
+  // Template-Circuit Integration
+  app.post("/api/templates/:templateId/circuits", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const { circuitId, position, rounds } = req.body as { circuitId: string; position: number; rounds?: number };
+      const templateExercises = await storage.addCircuitToTemplate(userId, req.params.templateId as string, circuitId, position, rounds);
+      res.status(201).json(templateExercises);
+    } catch (error) {
+      console.error("Error adding circuit to template:", error);
+      res.status(500).json({ message: "Failed to add circuit to template" });
+    }
+  });
+
+  app.patch("/api/templates/:templateId/circuits/:circuitId", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const { rounds } = req.body as { rounds: number };
+      await storage.updateCircuitRoundsInTemplate(userId, req.params.templateId as string, req.params.circuitId as string, rounds);
+      res.status(200).json({ success: true });
+    } catch (error) {
+      console.error("Error updating circuit rounds:", error);
+      res.status(500).json({ message: "Failed to update circuit rounds" });
+    }
+  });
+
+  app.delete("/api/templates/:templateId/circuits/:circuitId", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      await storage.removeCircuitFromTemplate(userId, req.params.templateId as string, req.params.circuitId as string);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error removing circuit from template:", error);
+      res.status(500).json({ message: "Failed to remove circuit from template" });
     }
   });
 

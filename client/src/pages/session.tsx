@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { PageSkeleton } from "@/components/loading-skeleton";
 import { EmptyState } from "@/components/empty-state";
 import { AppHeader } from "@/components/app-header";
-import { Play, Square, Plus, Check, Dumbbell, Clock, ChevronDown, ChevronUp, Save } from "lucide-react";
+import { Play, Square, Plus, Check, Dumbbell, Clock, ChevronDown, ChevronUp, Save, Repeat } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -27,6 +27,7 @@ interface SessionExerciseWithDetails extends SessionExercise {
 interface SessionWithDetails extends WorkoutSession {
   exercises?: SessionExerciseWithDetails[];
   templateName?: string;
+  circuitNames?: Record<string, string>;
 }
 
 export default function Session() {
@@ -265,7 +266,65 @@ export default function Session() {
 
       <div className="max-w-lg mx-auto px-4 py-4 space-y-4">
         {session.exercises && session.exercises.length > 0 ? (
-          session.exercises.map((sessionExercise, index) => {
+          (() => {
+            // Group exercises by circuit
+            const groups: Array<{
+              type: "exercise" | "circuit";
+              circuitId?: string;
+              circuitName?: string;
+              circuitRounds?: number;
+              items: SessionExerciseWithDetails[];
+            }> = [];
+
+            let currentCircuitId: string | null = null;
+            let currentGroup: typeof groups[0] | null = null;
+
+            for (const ex of session.exercises!) {
+              if (ex.circuitId) {
+                if (ex.circuitId !== currentCircuitId) {
+                  currentCircuitId = ex.circuitId;
+                  currentGroup = {
+                    type: "circuit",
+                    circuitId: ex.circuitId,
+                    circuitName: session.circuitNames?.[ex.circuitId] || "Circuit",
+                    circuitRounds: ex.circuitRounds || 1,
+                    items: [],
+                  };
+                  groups.push(currentGroup);
+                }
+                currentGroup!.items.push(ex);
+              } else {
+                currentCircuitId = null;
+                currentGroup = null;
+                groups.push({ type: "exercise", items: [ex] });
+              }
+            }
+
+            return groups.map((group) => {
+              if (group.type === "circuit") {
+                return (
+                  <div key={`circuit-${group.circuitId}`} className="border-l-4 border-primary rounded-lg overflow-hidden">
+                    <div className="bg-primary/5 px-4 py-2 flex items-center gap-2">
+                      <Repeat className="h-4 w-4 text-primary" />
+                      <span className="font-medium text-sm">{group.circuitName}</span>
+                      <Badge variant="secondary" className="text-xs">
+                        {group.circuitRounds} {group.circuitRounds === 1 ? "round" : "rounds"}
+                      </Badge>
+                    </div>
+                    {group.items.map((sessionExercise) => {
+                      const globalIndex = session.exercises!.indexOf(sessionExercise);
+                      return renderExerciseCard(sessionExercise, globalIndex);
+                    })}
+                  </div>
+                );
+              }
+
+              const sessionExercise = group.items[0];
+              const globalIndex = session.exercises!.indexOf(sessionExercise);
+              return renderExerciseCard(sessionExercise, globalIndex);
+            });
+
+            function renderExerciseCard(sessionExercise: SessionExerciseWithDetails, index: number) {
             const isExpanded = expandedExercise === sessionExercise.id;
             const completedSets = sessionExercise.performedSets?.length || 0;
             const plannedSets = sessionExercise.plannedSets?.length || 0;
@@ -281,7 +340,14 @@ export default function Session() {
                       {index + 1}
                     </div>
                     <div>
-                      <p className="font-medium">{sessionExercise.exercise?.name}</p>
+                      <div className="flex items-center gap-1">
+                        <p className="font-medium">{sessionExercise.exercise?.name}</p>
+                        {sessionExercise.circuitRound && (
+                          <Badge variant="outline" className="text-[10px] h-4 px-1">
+                            Rd {sessionExercise.circuitRound}
+                          </Badge>
+                        )}
+                      </div>
                       <p className="text-xs text-muted-foreground">
                         {completedSets}{plannedSets > 0 ? `/${plannedSets}` : ""} sets
                       </p>
@@ -431,7 +497,8 @@ export default function Session() {
                 )}
               </Card>
             );
-          })
+            }
+          })()
         ) : (
           <EmptyState
             icon={Dumbbell}

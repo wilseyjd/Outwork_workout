@@ -15,6 +15,8 @@ import History from "@/pages/history";
 import Supplements from "@/pages/supplements";
 import Settings from "@/pages/settings";
 import Exercises from "@/pages/exercises";
+import Circuits from "@/pages/circuits";
+import CircuitDetail from "@/pages/circuit-detail";
 import TemplateDetail from "@/pages/template-detail";
 import ExerciseDetail from "@/pages/exercise-detail";
 import Session from "@/pages/session";
@@ -57,6 +59,8 @@ function AuthenticatedRoutes() {
       <Route path="/settings" component={Settings} />
       <Route path="/exercises" component={Exercises} />
       <Route path="/exercise/:id" component={ExerciseDetail} />
+      <Route path="/circuits" component={Circuits} />
+      <Route path="/circuit/:id" component={CircuitDetail} />
       <Route path="/template/:id" component={TemplateDetail} />
       <Route path="/session/:id" component={Session} />
       <Route path="/session/:id/view" component={SessionView} />

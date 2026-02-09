@@ -35,6 +35,50 @@ export const hiddenSystemExercises = pgTable("hidden_system_exercises", {
   index("hidden_exercises_user_idx").on(table.userId),
 ]);
 
+// Circuits table - reusable exercise groups
+export const circuits = pgTable("circuits", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id"), // Nullable for system circuits
+  name: text("name").notNull(),
+  rounds: integer("rounds").notNull().default(1),
+  category: text("category"),
+  isSystem: boolean("is_system").notNull().default(false),
+  restBetweenExercisesSeconds: integer("rest_between_exercises_seconds"),
+  restBetweenRoundsSeconds: integer("rest_between_rounds_seconds"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("circuits_user_idx").on(table.userId),
+]);
+
+// Circuit exercises - exercises within a circuit with ordering
+export const circuitExercises = pgTable("circuit_exercises", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  circuitId: varchar("circuit_id").notNull(),
+  exerciseId: varchar("exercise_id").notNull(),
+  position: integer("position").notNull(),
+  restAfterSeconds: integer("rest_after_seconds"),
+  defaultReps: integer("default_reps"),
+  defaultWeight: numeric("default_weight"),
+  defaultTimeSeconds: integer("default_time_seconds"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("circuit_exercises_circuit_idx").on(table.circuitId),
+  index("circuit_exercises_position_idx").on(table.circuitId, table.position),
+]);
+
+// Hidden system circuits - tracks which system circuits a user has hidden
+export const hiddenSystemCircuits = pgTable("hidden_system_circuits", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  circuitId: varchar("circuit_id").notNull(),
+}, (table) => [
+  index("hidden_circuits_user_idx").on(table.userId),
+]);
+
 // Workout templates table - planned workout definitions
 export const workoutTemplates = pgTable("workout_templates", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -54,6 +98,9 @@ export const workoutTemplateExercises = pgTable("workout_template_exercises", {
   templateId: varchar("template_id").notNull(),
   exerciseId: varchar("exercise_id").notNull(),
   position: integer("position").notNull(),
+  circuitId: varchar("circuit_id"),
+  circuitRound: integer("circuit_round"),
+  circuitRounds: integer("circuit_rounds"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
@@ -111,6 +158,9 @@ export const sessionExercises = pgTable("session_exercises", {
   sessionId: varchar("session_id").notNull(),
   exerciseId: varchar("exercise_id").notNull(),
   position: integer("position").notNull(),
+  circuitId: varchar("circuit_id"),
+  circuitRound: integer("circuit_round"),
+  circuitRounds: integer("circuit_rounds"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
@@ -190,9 +240,25 @@ export const bodyWeightLogs = pgTable("body_weight_logs", {
 ]);
 
 // Relations
+export const circuitsRelations = relations(circuits, ({ many }) => ({
+  circuitExercises: many(circuitExercises),
+}));
+
+export const circuitExercisesRelations = relations(circuitExercises, ({ one }) => ({
+  circuit: one(circuits, {
+    fields: [circuitExercises.circuitId],
+    references: [circuits.id],
+  }),
+  exercise: one(exercises, {
+    fields: [circuitExercises.exerciseId],
+    references: [exercises.id],
+  }),
+}));
+
 export const exercisesRelations = relations(exercises, ({ many }) => ({
   templateExercises: many(workoutTemplateExercises),
   sessionExercises: many(sessionExercises),
+  circuitExercises: many(circuitExercises),
 }));
 
 export const workoutTemplatesRelations = relations(workoutTemplates, ({ many }) => ({
@@ -278,6 +344,8 @@ export const supplementLogsRelations = relations(supplementLogs, ({ one }) => ({
 }));
 
 // Insert schemas
+export const insertCircuitSchema = createInsertSchema(circuits).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertCircuitExerciseSchema = createInsertSchema(circuitExercises).omit({ id: true, createdAt: true });
 export const insertExerciseSchema = createInsertSchema(exercises).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWorkoutTemplateSchema = createInsertSchema(workoutTemplates).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWorkoutTemplateExerciseSchema = createInsertSchema(workoutTemplateExercises).omit({ id: true, createdAt: true });
@@ -292,6 +360,10 @@ export const insertSupplementLogSchema = createInsertSchema(supplementLogs).omit
 export const insertBodyWeightLogSchema = createInsertSchema(bodyWeightLogs).omit({ id: true, loggedAt: true });
 
 // Types
+export type Circuit = typeof circuits.$inferSelect;
+export type InsertCircuit = z.infer<typeof insertCircuitSchema>;
+export type CircuitExercise = typeof circuitExercises.$inferSelect;
+export type InsertCircuitExercise = z.infer<typeof insertCircuitExerciseSchema>;
 export type Exercise = typeof exercises.$inferSelect;
 export type InsertExercise = z.infer<typeof insertExerciseSchema>;
 export type WorkoutTemplate = typeof workoutTemplates.$inferSelect;
