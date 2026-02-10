@@ -67,7 +67,7 @@ async function buildAll() {
 
     // Bundle the serverless function (all deps included)
     await esbuild({
-      entryPoints: ["api/index.ts"],
+      entryPoints: ["server/vercel.ts"],
       platform: "node",
       bundle: true,
       format: "esm",
