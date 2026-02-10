@@ -3,7 +3,7 @@ import session from "express-session";
 import connectPg from "connect-pg-simple";
 import type { Express, RequestHandler } from "express";
 import { db } from "./db";
-import { users, sessions } from "@shared/models/auth";
+import { users, sessions } from "../shared/models/auth";
 import { eq } from "drizzle-orm";
 
 declare module "express-session" {
@@ -216,7 +216,7 @@ export async function setupAuth(app: Express) {
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
 
       // Import passwordResetTokens from auth models
-      const { passwordResetTokens } = await import("@shared/models/auth");
+      const { passwordResetTokens } = await import("../shared/models/auth");
 
       // Delete any existing tokens for this user
       await db.delete(passwordResetTokens).where(eq(passwordResetTokens.userId, user.id));
@@ -256,7 +256,7 @@ export async function setupAuth(app: Express) {
         return res.status(400).json({ message: "Password must be at least 6 characters" });
       }
 
-      const { passwordResetTokens } = await import("@shared/models/auth");
+      const { passwordResetTokens } = await import("../shared/models/auth");
 
       // Find the reset token
       const [resetToken] = await db.select()

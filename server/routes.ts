@@ -15,7 +15,7 @@ import {
   insertSupplementLogSchema,
   insertBodyWeightLogSchema,
   insertPerformedSetSchema,
-} from "@shared/schema";
+} from "../shared/schema";
 
 // Validation helper
 function validateBody<T>(schema: ZodSchema<T>, body: unknown): { success: true; data: T } | { success: false; error: string } {

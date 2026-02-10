@@ -19,7 +19,7 @@ import {
   type SupplementScheduleItem, type InsertSupplementSchedule,
   type SupplementLog, type InsertSupplementLog,
   type BodyWeightLog, type InsertBodyWeightLog,
-} from "@shared/schema";
+} from "../shared/schema";
 
 export interface IStorage {
   // Circuits
