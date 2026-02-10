@@ -114,6 +114,9 @@ export interface IStorage {
   // Export
   getSessionsForExport(userId: string): Promise<any[]>;
 
+  // Performed Exercises (exercises with workout history)
+  getPerformedExercises(userId: string): Promise<Exercise[]>;
+
   // Analytics
   getExerciseAnalytics(userId: string, exerciseId: string): Promise<{
     date: string;
@@ -957,6 +960,27 @@ export class DatabaseStorage implements IStorage {
     }));
 
     return sessionsWithDetails;
+  }
+
+  // Performed Exercises
+  async getPerformedExercises(userId: string): Promise<Exercise[]> {
+    const result = await db.selectDistinct({
+      id: exercises.id,
+      userId: exercises.userId,
+      name: exercises.name,
+      category: exercises.category,
+      notes: exercises.notes,
+      isSystem: exercises.isSystem,
+      createdAt: exercises.createdAt,
+      updatedAt: exercises.updatedAt,
+    })
+      .from(sessionExercises)
+      .innerJoin(exercises, eq(sessionExercises.exerciseId, exercises.id))
+      .innerJoin(performedSets, eq(performedSets.sessionExerciseId, sessionExercises.id))
+      .where(eq(sessionExercises.userId, userId))
+      .orderBy(exercises.name);
+
+    return result as Exercise[];
   }
 
   // Analytics

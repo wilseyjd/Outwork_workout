@@ -48,6 +48,17 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/exercises/performed", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const exercises = await storage.getPerformedExercises(userId);
+      res.json(exercises);
+    } catch (error) {
+      console.error("Error fetching performed exercises:", error);
+      res.status(500).json({ message: "Failed to fetch performed exercises" });
+    }
+  });
+
   app.get("/api/exercises/:id", isAuthenticated, async (req, res) => {
     try {
       const userId = getUserId(req);

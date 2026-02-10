@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { PageSkeleton } from "@/components/loading-skeleton";
 import { EmptyState } from "@/components/empty-state";
 import { AppHeader } from "@/components/app-header";
-import { Play, Square, Plus, Check, Dumbbell, Clock, ChevronDown, ChevronUp, Save, Repeat } from "lucide-react";
+import { Play, Square, Plus, Check, Dumbbell, Clock, ChevronDown, ChevronUp, Save, Repeat, Search } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -40,6 +40,8 @@ export default function Session() {
   const [expandedExercise, setExpandedExercise] = useState<string | null>(null);
   const [sessionNotes, setSessionNotes] = useState("");
   const [endDialogOpen, setEndDialogOpen] = useState(false);
+  const [addExerciseOpen, setAddExerciseOpen] = useState(false);
+  const [exerciseSearchQuery, setExerciseSearchQuery] = useState("");
   const [addSetForm, setAddSetForm] = useState<{
     exerciseId: string | null;
     reps: string;
@@ -74,6 +76,35 @@ export default function Session() {
     },
     onError: () => {
       toast({ title: "Failed to start workout", variant: "destructive" });
+    },
+  });
+
+  const { data: allExercises } = useQuery<Exercise[]>({
+    queryKey: ["/api/exercises"],
+    enabled: addExerciseOpen,
+  });
+
+  const filteredExercises = allExercises?.filter(e =>
+    e.name.toLowerCase().includes(exerciseSearchQuery.toLowerCase()) ||
+    e.category?.toLowerCase().includes(exerciseSearchQuery.toLowerCase())
+  );
+
+  const addExerciseMutation = useMutation({
+    mutationFn: async (exerciseId: string) => {
+      const position = (session?.exercises?.length || 0) + 1;
+      return await apiRequest("POST", `/api/sessions/${sessionId}/exercises`, {
+        exerciseId,
+        position,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sessions", sessionId] });
+      setAddExerciseOpen(false);
+      setExerciseSearchQuery("");
+      toast({ title: "Exercise added" });
+    },
+    onError: () => {
+      toast({ title: "Failed to add exercise", variant: "destructive" });
     },
   });
 
@@ -503,8 +534,59 @@ export default function Session() {
           <EmptyState
             icon={Dumbbell}
             title="No exercises"
-            description="This workout has no exercises"
+            description={isActive ? "Add an exercise to get started" : "This workout has no exercises"}
           />
+        )}
+
+        {isActive && (
+          <Dialog open={addExerciseOpen} onOpenChange={(open) => {
+            setAddExerciseOpen(open);
+            if (!open) setExerciseSearchQuery("");
+          }}>
+            <DialogTrigger asChild>
+              <Button variant="outline" className="w-full h-12" data-testid="button-add-exercise">
+                <Plus className="h-4 w-4 mr-2" />
+                Add Exercise
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add Exercise</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3 pt-2">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search exercises..."
+                    value={exerciseSearchQuery}
+                    onChange={(e) => setExerciseSearchQuery(e.target.value)}
+                    className="pl-9"
+                    data-testid="input-search-exercise"
+                  />
+                </div>
+                <div className="max-h-72 overflow-y-auto rounded-md border border-input">
+                  {filteredExercises && filteredExercises.length > 0 ? (
+                    filteredExercises.map((exercise) => (
+                      <button
+                        key={exercise.id}
+                        onClick={() => addExerciseMutation.mutate(exercise.id)}
+                        disabled={addExerciseMutation.isPending}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-accent hover:text-accent-foreground transition-colors border-b border-border last:border-b-0"
+                        data-testid={`option-add-exercise-${exercise.id}`}
+                      >
+                        <div className="font-medium">{exercise.name}</div>
+                        {exercise.category && (
+                          <div className="text-xs text-muted-foreground">{exercise.category}</div>
+                        )}
+                      </button>
+                    ))
+                  ) : (
+                    <div className="p-3 text-sm text-muted-foreground">No exercises found</div>
+                  )}
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
         )}
       </div>
     </div>
