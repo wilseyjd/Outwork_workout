@@ -9,6 +9,7 @@ export interface User {
   profileImageUrl: string | null;
   createdAt: Date | null;
   updatedAt: Date | null;
+  termsAcceptedAt: string | null;
 }
 
 async function fetchUser(): Promise<User | null> {
@@ -57,7 +58,7 @@ export function useAuth() {
   });
 
   const signupMutation = useMutation({
-    mutationFn: async (data: { email: string; password: string; firstName?: string; lastName?: string }) => {
+    mutationFn: async (data: { email: string; password: string; firstName?: string; lastName?: string; acceptTerms?: boolean }) => {
       const response = await fetch("/api/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

@@ -41,10 +41,14 @@ export async function setupAuth(app: Express) {
 
   app.post("/api/auth/signup", async (req, res) => {
     try {
-      const { email, password, firstName, lastName } = req.body;
+      const { email, password, firstName, lastName, acceptTerms } = req.body;
 
       if (!email || !password) {
         return res.status(400).json({ message: "Email and password are required" });
+      }
+
+      if (!acceptTerms) {
+        return res.status(400).json({ message: "You must accept the Terms of Use and Privacy Policy" });
       }
 
       if (password.length < 6) {
@@ -63,6 +67,7 @@ export async function setupAuth(app: Express) {
         password: hashedPassword,
         firstName: firstName || null,
         lastName: lastName || null,
+        termsAcceptedAt: new Date(),
       }).returning();
 
       req.session.regenerate((err) => {
@@ -284,6 +289,26 @@ export async function setupAuth(app: Express) {
     } catch (error) {
       console.error("Reset password error:", error);
       res.status(500).json({ message: "Failed to reset password" });
+    }
+  });
+
+  app.post("/api/auth/accept-terms", isAuthenticated, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const [updatedUser] = await db.update(users)
+        .set({ termsAcceptedAt: new Date() })
+        .where(eq(users.id, userId))
+        .returning();
+
+      if (!updatedUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      const { password: _, ...userWithoutPassword } = updatedUser;
+      res.json(userWithoutPassword);
+    } catch (error) {
+      console.error("Accept terms error:", error);
+      res.status(500).json({ message: "Failed to accept terms" });
     }
   });
 

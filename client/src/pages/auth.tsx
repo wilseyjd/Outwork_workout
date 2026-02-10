@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation } from "@tanstack/react-query";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dumbbell, Loader2 } from "lucide-react";
 
 export default function Auth() {
@@ -25,6 +26,7 @@ export default function Auth() {
     lastName: ""
   });
 
+  const [acceptTerms, setAcceptTerms] = useState(false);
   const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
   const [resetStep, setResetStep] = useState<"email" | "token">("email");
   const [resetEmail, setResetEmail] = useState("");
@@ -121,6 +123,7 @@ export default function Auth() {
         password: signupData.password,
         firstName: signupData.firstName || undefined,
         lastName: signupData.lastName || undefined,
+        acceptTerms: true,
       });
       navigate("/");
     } catch (error: any) {
@@ -384,10 +387,32 @@ export default function Auth() {
                       data-testid="input-signup-confirm-password"
                     />
                   </div>
+                  <div className="flex items-start space-x-3">
+                    <Checkbox
+                      id="signup-accept-terms"
+                      checked={acceptTerms}
+                      onCheckedChange={(checked) => setAcceptTerms(checked === true)}
+                      data-testid="checkbox-accept-terms"
+                    />
+                    <label
+                      htmlFor="signup-accept-terms"
+                      className="text-sm leading-relaxed cursor-pointer text-muted-foreground"
+                    >
+                      I agree to the{" "}
+                      <a href="/terms" target="_blank" className="text-primary underline underline-offset-4 hover:text-primary/80">
+                        Terms of Use
+                      </a>{" "}
+                      and{" "}
+                      <a href="/privacy" target="_blank" className="text-primary underline underline-offset-4 hover:text-primary/80">
+                        Privacy Policy
+                      </a>{" "}
+                      and confirm I am at least 13 years old.
+                    </label>
+                  </div>
                   <Button
                     type="submit"
                     className="w-full"
-                    disabled={isSigningUp}
+                    disabled={isSigningUp || !acceptTerms}
                     data-testid="button-signup-submit"
                   >
                     {isSigningUp ? (
@@ -406,7 +431,9 @@ export default function Auth() {
         </Card>
 
         <p className="text-center text-sm text-muted-foreground mt-6">
-          By continuing, you agree to our Terms of Service
+          <a href="/terms" target="_blank" className="underline underline-offset-4 hover:text-primary">Terms of Use</a>
+          {" "}&middot;{" "}
+          <a href="/privacy" target="_blank" className="underline underline-offset-4 hover:text-primary">Privacy Policy</a>
         </p>
       </div>
     </div>

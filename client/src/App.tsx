@@ -22,7 +22,10 @@ import ExerciseDetail from "@/pages/exercise-detail";
 import Session from "@/pages/session";
 import SessionView from "@/pages/session-view";
 import Analytics from "@/pages/analytics";
+import Terms from "@/pages/terms";
+import Privacy from "@/pages/privacy";
 import NotFound from "@/pages/not-found";
+import { TermsDialog } from "@/components/terms-dialog";
 
 function LoadingSkeleton() {
   return (
@@ -65,6 +68,8 @@ function AuthenticatedRoutes() {
       <Route path="/session/:id" component={Session} />
       <Route path="/session/:id/view" component={SessionView} />
       <Route path="/analytics" component={Analytics} />
+      <Route path="/terms" component={Terms} />
+      <Route path="/privacy" component={Privacy} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -74,6 +79,8 @@ function UnauthenticatedRoutes() {
   return (
     <Switch>
       <Route path="/auth" component={Auth} />
+      <Route path="/terms" component={Terms} />
+      <Route path="/privacy" component={Privacy} />
       <Route component={Landing} />
     </Switch>
   );
@@ -88,6 +95,15 @@ function AppRouter() {
 
   if (!user) {
     return <UnauthenticatedRoutes />;
+  }
+
+  if (!user.termsAcceptedAt) {
+    return (
+      <>
+        <AuthenticatedRoutes />
+        <TermsDialog />
+      </>
+    );
   }
 
   return <AuthenticatedRoutes />;

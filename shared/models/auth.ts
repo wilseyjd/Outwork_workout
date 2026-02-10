@@ -22,6 +22,7 @@ export const users = pgTable("users", {
   profileImageUrl: varchar("profile_image_url"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+  termsAcceptedAt: timestamp("terms_accepted_at"),
 });
 
 // Password reset tokens table

@@ -128,6 +128,10 @@ export default function Landing() {
             <img src="/outwork-logo.png" alt="Outwork Logo" className="w-6 h-6 rounded" />
             <span>Outwork</span>
           </div>
+          <div className="flex items-center gap-4">
+            <a href="/terms" className="hover:text-primary transition-colors">Terms of Use</a>
+            <a href="/privacy" className="hover:text-primary transition-colors">Privacy Policy</a>
+          </div>
           <p>&copy; {new Date().getFullYear()} Outwork. Built for lifters.</p>
         </div>
       </footer>
