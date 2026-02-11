@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
 import { useAuth } from "@/hooks/use-auth";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Analytics as VercelAnalytics } from "@vercel/analytics/react";
 
 import Landing from "@/pages/landing";
 import Auth from "@/pages/auth";
@@ -116,6 +117,7 @@ function App() {
         <TooltipProvider>
           <AppRouter />
           <Toaster />
+          <VercelAnalytics />
         </TooltipProvider>
       </ThemeProvider>
     </QueryClientProvider>
