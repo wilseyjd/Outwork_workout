@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation, Link } from "wouter";
 import { Card } from "@/components/ui/card";
@@ -12,7 +12,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { PageSkeleton } from "@/components/loading-skeleton";
 import { EmptyState } from "@/components/empty-state";
 import { AppHeader } from "@/components/app-header";
-import { Play, Square, Plus, Check, Dumbbell, Clock, ChevronDown, ChevronUp, Save, Repeat, Search } from "lucide-react";
+import { RestTimer } from "@/components/rest-timer";
+import { Play, Square, Plus, Check, Dumbbell, Clock, ChevronDown, ChevronUp, Save, Repeat, Search, Pencil, ArrowUp, ArrowDown } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -30,6 +31,97 @@ interface SessionWithDetails extends WorkoutSession {
   circuitNames?: Record<string, string>;
 }
 
+type AddSetForm = {
+  exerciseId: string | null;
+  reps: string;
+  weight: string;
+  time: string;
+  distance: string;
+  rest: string;
+  isWarmup: boolean;
+};
+
+const defaultForm: AddSetForm = {
+  exerciseId: null,
+  reps: "",
+  weight: "",
+  time: "",
+  distance: "",
+  rest: "",
+  isWarmup: false,
+};
+
+type Tracking = { weight: boolean; reps: boolean; time: boolean; distance: boolean };
+const defaultTracking: Tracking = { weight: true, reps: true, time: false, distance: false };
+
+function getTracking(exercise?: Exercise): Tracking {
+  if (!exercise?.defaultTracking) return defaultTracking;
+  const t = exercise.defaultTracking as Partial<Tracking>;
+  return { ...defaultTracking, ...t };
+}
+
+function getPreFillValues(
+  sessionExercise: SessionExerciseWithDetails,
+  lastPerformance?: Record<string, PerformedSet[]>,
+): Omit<AddSetForm, "exerciseId"> | null {
+  const nextSetNumber = (sessionExercise.performedSets?.length || 0) + 1;
+
+  // Priority 1: Planned set from template
+  if (sessionExercise.plannedSets && sessionExercise.plannedSets.length > 0) {
+    const planned = sessionExercise.plannedSets.find(s => s.setNumber === nextSetNumber)
+      || sessionExercise.plannedSets[0];
+    if (planned) {
+      return {
+        reps: planned.targetReps?.toString() || "",
+        weight: planned.targetWeight?.toString() || "",
+        time: planned.targetTimeSeconds?.toString() || "",
+        distance: (planned as any).targetDistance?.toString() || "",
+        rest: planned.restSeconds?.toString() || "",
+        isWarmup: planned.isWarmup || false,
+      };
+    }
+  }
+
+  // Priority 2: Last session's performance
+  const exerciseId = sessionExercise.exerciseId;
+  const lastSets = lastPerformance?.[exerciseId];
+  if (lastSets && lastSets.length > 0) {
+    const lastSet = lastSets.find(s => s.setNumber === nextSetNumber) || lastSets[0];
+    return {
+      reps: lastSet.actualReps?.toString() || "",
+      weight: lastSet.actualWeight?.toString() || "",
+      time: lastSet.actualTimeSeconds?.toString() || "",
+      distance: (lastSet as any).actualDistance?.toString() || "",
+      rest: lastSet.restSeconds?.toString() || "",
+      isWarmup: false,
+    };
+  }
+
+  // Priority 3: Previous set in current session
+  if (sessionExercise.performedSets && sessionExercise.performedSets.length > 0) {
+    const prevSet = sessionExercise.performedSets[sessionExercise.performedSets.length - 1];
+    return {
+      reps: prevSet.actualReps?.toString() || "",
+      weight: prevSet.actualWeight?.toString() || "",
+      time: prevSet.actualTimeSeconds?.toString() || "",
+      distance: (prevSet as any).actualDistance?.toString() || "",
+      rest: prevSet.restSeconds?.toString() || "",
+      isWarmup: false,
+    };
+  }
+
+  return null;
+}
+
+function formatPreFillSummary(preFill: Omit<AddSetForm, "exerciseId">, tracking: Tracking): string {
+  const parts: string[] = [];
+  if (tracking.weight && preFill.weight) parts.push(`${preFill.weight} lbs`);
+  if (tracking.reps && preFill.reps) parts.push(`${preFill.reps} reps`);
+  if (tracking.time && preFill.time) parts.push(`${preFill.time}s`);
+  if (tracking.distance && preFill.distance) parts.push(`${preFill.distance} mi`);
+  return parts.length > 0 ? parts.join(" / ") : "";
+}
+
 export default function Session() {
   const [, params] = useRoute("/session/:id");
   const [, navigate] = useLocation();
@@ -42,21 +134,8 @@ export default function Session() {
   const [endDialogOpen, setEndDialogOpen] = useState(false);
   const [addExerciseOpen, setAddExerciseOpen] = useState(false);
   const [exerciseSearchQuery, setExerciseSearchQuery] = useState("");
-  const [addSetForm, setAddSetForm] = useState<{
-    exerciseId: string | null;
-    reps: string;
-    weight: string;
-    time: string;
-    rest: string;
-    isWarmup: boolean;
-  }>({
-    exerciseId: null,
-    reps: "",
-    weight: "",
-    time: "",
-    rest: "",
-    isWarmup: false,
-  });
+  const [addSetForm, setAddSetForm] = useState<AddSetForm>({ ...defaultForm });
+  const [restTimer, setRestTimer] = useState<number | null>(null);
 
   const { data: session, isLoading } = useQuery<SessionWithDetails>({
     queryKey: ["/api/sessions", sessionId],
@@ -65,6 +144,13 @@ export default function Session() {
       const data = query.state.data as SessionWithDetails | undefined;
       return data?.endedAt ? false : 10000;
     },
+  });
+
+  const isActive = session ? !session.endedAt : false;
+
+  const { data: lastPerformance } = useQuery<Record<string, PerformedSet[]>>({
+    queryKey: ["/api/sessions", sessionId, "last-performance"],
+    enabled: !!sessionId && !isNew && isActive,
   });
 
   const createAdHocMutation = useMutation({
@@ -116,14 +202,20 @@ export default function Session() {
         actualReps?: number;
         actualWeight?: string;
         actualTimeSeconds?: number;
+        actualDistance?: string;
         restSeconds?: number;
         isWarmup?: boolean;
       };
     }) => {
       return await apiRequest("POST", `/api/sessions/${sessionId}/exercises/${sessionExerciseId}/sets`, data);
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/sessions", sessionId] });
+      // Start rest timer if rest seconds specified
+      const restSecs = variables.data.restSeconds;
+      if (restSecs && restSecs > 0) {
+        setRestTimer(restSecs);
+      }
       resetAddSetForm();
       toast({ title: "Set logged" });
     },
@@ -163,14 +255,7 @@ export default function Session() {
   }, [session?.notes]);
 
   const resetAddSetForm = () => {
-    setAddSetForm({
-      exerciseId: null,
-      reps: "",
-      weight: "",
-      time: "",
-      rest: "",
-      isWarmup: false,
-    });
+    setAddSetForm({ ...defaultForm });
   };
 
   const handleAddSet = (sessionExerciseId: string, currentSetsCount: number) => {
@@ -181,10 +266,36 @@ export default function Session() {
     if (addSetForm.reps) data.actualReps = parseInt(addSetForm.reps);
     if (addSetForm.weight) data.actualWeight = addSetForm.weight;
     if (addSetForm.time) data.actualTimeSeconds = parseInt(addSetForm.time);
+    if (addSetForm.distance) data.actualDistance = addSetForm.distance;
     if (addSetForm.rest) data.restSeconds = parseInt(addSetForm.rest);
     data.isWarmup = addSetForm.isWarmup;
 
     addSetMutation.mutate({ sessionExerciseId, data });
+  };
+
+  const handleQuickLog = (sessionExercise: SessionExerciseWithDetails, preFill: Omit<AddSetForm, "exerciseId">) => {
+    const currentSetsCount = sessionExercise.performedSets?.length || 0;
+    const data: any = {
+      setNumber: currentSetsCount + 1,
+    };
+
+    if (preFill.reps) data.actualReps = parseInt(preFill.reps);
+    if (preFill.weight) data.actualWeight = preFill.weight;
+    if (preFill.time) data.actualTimeSeconds = parseInt(preFill.time);
+    if (preFill.distance) data.actualDistance = preFill.distance;
+    if (preFill.rest) data.restSeconds = parseInt(preFill.rest);
+    data.isWarmup = preFill.isWarmup;
+
+    addSetMutation.mutate({ sessionExerciseId: sessionExercise.id, data });
+  };
+
+  const openFormWithPreFill = (sessionExercise: SessionExerciseWithDetails) => {
+    const preFill = getPreFillValues(sessionExercise, lastPerformance);
+    if (preFill) {
+      setAddSetForm({ exerciseId: sessionExercise.id, ...preFill });
+    } else {
+      setAddSetForm({ ...defaultForm, exerciseId: sessionExercise.id });
+    }
   };
 
   const formatElapsedTime = () => {
@@ -231,8 +342,6 @@ export default function Session() {
     );
   }
 
-  const isActive = !session.endedAt;
-
   return (
     <div className="min-h-screen bg-background pb-24">
       <div className="sticky top-0 z-40 bg-background border-b border-border">
@@ -272,8 +381,8 @@ export default function Session() {
                       />
                     </div>
                     <div className="flex gap-2">
-                      <Button 
-                        className="flex-1" 
+                      <Button
+                        className="flex-1"
                         onClick={() => endSessionMutation.mutate()}
                         disabled={endSessionMutation.isPending}
                         data-testid="button-confirm-end"
@@ -358,7 +467,15 @@ export default function Session() {
             function renderExerciseCard(sessionExercise: SessionExerciseWithDetails, index: number) {
             const isExpanded = expandedExercise === sessionExercise.id;
             const completedSets = sessionExercise.performedSets?.length || 0;
-            const plannedSets = sessionExercise.plannedSets?.length || 0;
+            const plannedSetsCount = sessionExercise.plannedSets?.length || 0;
+            const tracking = getTracking(sessionExercise.exercise);
+            const preFill = isActive ? getPreFillValues(sessionExercise, lastPerformance) : null;
+            const preFillSummary = preFill ? formatPreFillSummary(preFill, tracking) : "";
+            const lastSets = lastPerformance?.[sessionExercise.exerciseId];
+
+            // Count enabled tracking fields (excluding rest which always shows)
+            const enabledFields = [tracking.reps, tracking.weight, tracking.time, tracking.distance].filter(Boolean).length;
+            const gridCols = enabledFields <= 2 ? "grid-cols-2" : "grid-cols-2";
 
             return (
               <Card key={sessionExercise.id} className="overflow-hidden" data-testid={`card-exercise-${sessionExercise.id}`}>
@@ -380,7 +497,7 @@ export default function Session() {
                         )}
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        {completedSets}{plannedSets > 0 ? `/${plannedSets}` : ""} sets
+                        {completedSets}{plannedSetsCount > 0 ? `/${plannedSetsCount}` : ""} sets
                       </p>
                     </div>
                   </div>
@@ -393,99 +510,156 @@ export default function Session() {
 
                 {isExpanded && (
                   <div className="px-4 pb-4 space-y-3">
+                    {/* Target (planned sets) */}
                     {sessionExercise.plannedSets && sessionExercise.plannedSets.length > 0 && (
                       <div className="p-2 bg-muted/50 rounded-lg">
                         <p className="text-xs font-medium text-muted-foreground mb-2">Target</p>
                         <div className="flex flex-wrap gap-2">
                           {sessionExercise.plannedSets.map((set) => (
                             <Badge key={set.id} variant="outline" className="text-xs">
-                              {set.targetReps && `${set.targetReps}×`}
+                              {set.targetReps && `${set.targetReps}\u00d7`}
                               {set.targetWeight && `${set.targetWeight}lbs`}
                               {set.targetTimeSeconds && `${set.targetTimeSeconds}s`}
+                              {(set as any).targetDistance && `${(set as any).targetDistance}mi`}
                             </Badge>
                           ))}
                         </div>
                       </div>
                     )}
 
-                    {sessionExercise.performedSets && sessionExercise.performedSets.length > 0 && (
-                      <div className="space-y-1">
-                        {sessionExercise.performedSets.map((set) => (
-                          <div
-                            key={set.id}
-                            className="flex items-center justify-between px-3 py-2 bg-green-50 dark:bg-green-950/20 rounded-lg text-sm"
-                            data-testid={`row-set-${set.id}`}
-                          >
-                            <div className="flex items-center gap-2">
-                              <Check className="h-4 w-4 text-green-600" />
-                              <span className="font-medium">Set {set.setNumber}</span>
-                              {set.isWarmup && (
-                                <Badge variant="secondary" className="text-xs">warmup</Badge>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-3 text-muted-foreground">
-                              {set.actualWeight && <span>{set.actualWeight} lbs</span>}
-                              {set.actualReps && <span>{set.actualReps} reps</span>}
-                              {set.actualTimeSeconds && <span>{set.actualTimeSeconds}s</span>}
-                            </div>
-                          </div>
-                        ))}
+                    {/* Last Time */}
+                    {lastSets && lastSets.length > 0 && (
+                      <div className="p-2 bg-blue-50 dark:bg-blue-950/20 rounded-lg">
+                        <p className="text-xs font-medium text-blue-600 dark:text-blue-400 mb-2">Last Time</p>
+                        <div className="flex flex-wrap gap-2">
+                          {lastSets.map((set, i) => (
+                            <Badge key={set.id} variant="outline" className="text-xs border-blue-200 dark:border-blue-800">
+                              {set.actualReps && `${set.actualReps}\u00d7`}
+                              {set.actualWeight && `${set.actualWeight}lbs`}
+                              {set.actualTimeSeconds && `${set.actualTimeSeconds}s`}
+                              {(set as any).actualDistance && `${(set as any).actualDistance}mi`}
+                            </Badge>
+                          ))}
+                        </div>
                       </div>
                     )}
 
+                    {/* Performed sets with improvement indicators */}
+                    {sessionExercise.performedSets && sessionExercise.performedSets.length > 0 && (
+                      <div className="space-y-1">
+                        {sessionExercise.performedSets.map((set) => {
+                          // Compare against last session's matching set
+                          const lastMatchingSet = lastSets?.find(s => s.setNumber === set.setNumber);
+                          let indicator: "up" | "down" | null = null;
+                          if (lastMatchingSet) {
+                            const currentVolume = (set.actualReps || 0) * Number(set.actualWeight || 0);
+                            const lastVolume = (lastMatchingSet.actualReps || 0) * Number(lastMatchingSet.actualWeight || 0);
+                            if (currentVolume > 0 && lastVolume > 0) {
+                              if (currentVolume > lastVolume) indicator = "up";
+                              else if (currentVolume < lastVolume) indicator = "down";
+                            }
+                          }
+
+                          return (
+                            <div
+                              key={set.id}
+                              className="flex items-center justify-between px-3 py-2 bg-green-50 dark:bg-green-950/20 rounded-lg text-sm"
+                              data-testid={`row-set-${set.id}`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <Check className="h-4 w-4 text-green-600" />
+                                <span className="font-medium">Set {set.setNumber}</span>
+                                {set.isWarmup && (
+                                  <Badge variant="secondary" className="text-xs">warmup</Badge>
+                                )}
+                                {indicator === "up" && <ArrowUp className="h-3 w-3 text-green-600" />}
+                                {indicator === "down" && <ArrowDown className="h-3 w-3 text-red-500" />}
+                              </div>
+                              <div className="flex items-center gap-3 text-muted-foreground">
+                                {set.actualWeight && <span>{set.actualWeight} lbs</span>}
+                                {set.actualReps && <span>{set.actualReps} reps</span>}
+                                {set.actualTimeSeconds && <span>{set.actualTimeSeconds}s</span>}
+                                {(set as any).actualDistance && <span>{(set as any).actualDistance} mi</span>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Add set controls */}
                     {isActive && (
                       <>
                         {addSetForm.exerciseId === sessionExercise.id ? (
                           <div className="space-y-3 p-3 border border-border rounded-lg">
-                            <div className="grid grid-cols-2 gap-3">
-                              <div className="space-y-1">
-                                <Label className="text-xs">Reps</Label>
-                                <Input
-                                  type="number"
-                                  inputMode="numeric"
-                                  placeholder="10"
-                                  value={addSetForm.reps}
-                                  onChange={(e) => setAddSetForm(prev => ({ ...prev, reps: e.target.value }))}
-                                  className="h-12 text-lg"
-                                  data-testid="input-actual-reps"
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <Label className="text-xs">Weight (lbs)</Label>
-                                <Input
-                                  type="number"
-                                  inputMode="decimal"
-                                  placeholder="135"
-                                  value={addSetForm.weight}
-                                  onChange={(e) => setAddSetForm(prev => ({ ...prev, weight: e.target.value }))}
-                                  className="h-12 text-lg"
-                                  data-testid="input-actual-weight"
-                                />
-                              </div>
+                            <div className={`grid ${gridCols} gap-3`}>
+                              {tracking.reps && (
+                                <div className="space-y-1">
+                                  <Label className="text-xs">Reps</Label>
+                                  <Input
+                                    type="number"
+                                    inputMode="numeric"
+                                    placeholder="10"
+                                    value={addSetForm.reps}
+                                    onChange={(e) => setAddSetForm(prev => ({ ...prev, reps: e.target.value }))}
+                                    className="h-12 text-lg"
+                                    data-testid="input-actual-reps"
+                                  />
+                                </div>
+                              )}
+                              {tracking.weight && (
+                                <div className="space-y-1">
+                                  <Label className="text-xs">Weight (lbs)</Label>
+                                  <Input
+                                    type="number"
+                                    inputMode="decimal"
+                                    placeholder="135"
+                                    value={addSetForm.weight}
+                                    onChange={(e) => setAddSetForm(prev => ({ ...prev, weight: e.target.value }))}
+                                    className="h-12 text-lg"
+                                    data-testid="input-actual-weight"
+                                  />
+                                </div>
+                              )}
+                              {tracking.time && (
+                                <div className="space-y-1">
+                                  <Label className="text-xs">Time (sec)</Label>
+                                  <Input
+                                    type="number"
+                                    inputMode="numeric"
+                                    placeholder="60"
+                                    value={addSetForm.time}
+                                    onChange={(e) => setAddSetForm(prev => ({ ...prev, time: e.target.value }))}
+                                    className="h-12 text-lg"
+                                    data-testid="input-actual-time"
+                                  />
+                                </div>
+                              )}
+                              {tracking.distance && (
+                                <div className="space-y-1">
+                                  <Label className="text-xs">Distance (mi)</Label>
+                                  <Input
+                                    type="number"
+                                    inputMode="decimal"
+                                    placeholder="1.0"
+                                    value={addSetForm.distance}
+                                    onChange={(e) => setAddSetForm(prev => ({ ...prev, distance: e.target.value }))}
+                                    className="h-12 text-lg"
+                                    data-testid="input-actual-distance"
+                                  />
+                                </div>
+                              )}
                             </div>
-                            <div className="grid grid-cols-2 gap-3">
-                              <div className="space-y-1">
-                                <Label className="text-xs">Time (sec)</Label>
-                                <Input
-                                  type="number"
-                                  inputMode="numeric"
-                                  placeholder="60"
-                                  value={addSetForm.time}
-                                  onChange={(e) => setAddSetForm(prev => ({ ...prev, time: e.target.value }))}
-                                  data-testid="input-actual-time"
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <Label className="text-xs">Rest (sec)</Label>
-                                <Input
-                                  type="number"
-                                  inputMode="numeric"
-                                  placeholder="90"
-                                  value={addSetForm.rest}
-                                  onChange={(e) => setAddSetForm(prev => ({ ...prev, rest: e.target.value }))}
-                                  data-testid="input-actual-rest"
-                                />
-                              </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Rest (sec)</Label>
+                              <Input
+                                type="number"
+                                inputMode="numeric"
+                                placeholder="90"
+                                value={addSetForm.rest}
+                                onChange={(e) => setAddSetForm(prev => ({ ...prev, rest: e.target.value }))}
+                                data-testid="input-actual-rest"
+                              />
                             </div>
                             <div className="flex items-center gap-2">
                               <Checkbox
@@ -512,15 +686,38 @@ export default function Session() {
                             </div>
                           </div>
                         ) : (
-                          <Button
-                            variant="outline"
-                            className="w-full h-12"
-                            onClick={() => setAddSetForm(prev => ({ ...prev, exerciseId: sessionExercise.id }))}
-                            data-testid={`button-add-set-${sessionExercise.id}`}
-                          >
-                            <Plus className="h-4 w-4 mr-2" />
-                            Log Set
-                          </Button>
+                          preFillSummary ? (
+                            <div className="flex gap-2">
+                              <Button
+                                className="flex-1 h-12"
+                                onClick={() => handleQuickLog(sessionExercise, preFill!)}
+                                disabled={addSetMutation.isPending}
+                                data-testid={`button-quick-log-${sessionExercise.id}`}
+                              >
+                                <Check className="h-4 w-4 mr-2" />
+                                Log {preFillSummary}
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                className="h-12 w-12"
+                                onClick={() => openFormWithPreFill(sessionExercise)}
+                                data-testid={`button-edit-set-${sessionExercise.id}`}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <Button
+                              variant="outline"
+                              className="w-full h-12"
+                              onClick={() => setAddSetForm(prev => ({ ...prev, exerciseId: sessionExercise.id }))}
+                              data-testid={`button-add-set-${sessionExercise.id}`}
+                            >
+                              <Plus className="h-4 w-4 mr-2" />
+                              Log Set
+                            </Button>
+                          )
                         )}
                       </>
                     )}
@@ -589,6 +786,15 @@ export default function Session() {
           </Dialog>
         )}
       </div>
+
+      {/* Rest Timer */}
+      {restTimer !== null && (
+        <RestTimer
+          initialSeconds={restTimer}
+          onComplete={() => setRestTimer(null)}
+          onDismiss={() => setRestTimer(null)}
+        />
+      )}
     </div>
   );
 }

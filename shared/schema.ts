@@ -16,7 +16,7 @@ export const exercises = pgTable("exercises", {
   userId: varchar("user_id"), // Nullable for system exercises
   name: text("name").notNull(),
   category: text("category"),
-  defaultTracking: jsonb("default_tracking").$type<{ weight: boolean; reps: boolean; time: boolean }>().default({ weight: true, reps: true, time: false }),
+  defaultTracking: jsonb("default_tracking").$type<{ weight: boolean; reps: boolean; time: boolean; distance: boolean }>().default({ weight: true, reps: true, time: false, distance: false }),
   notes: text("notes"),
   url: text("url"),
   isSystem: boolean("is_system").notNull().default(false),
@@ -117,6 +117,7 @@ export const plannedSets = pgTable("planned_sets", {
   targetReps: integer("target_reps"),
   targetWeight: numeric("target_weight"),
   targetTimeSeconds: integer("target_time_seconds"),
+  targetDistance: numeric("target_distance"),
   restSeconds: integer("rest_seconds"),
   isWarmup: boolean("is_warmup").default(false),
 }, (table) => [
@@ -177,6 +178,7 @@ export const performedSets = pgTable("performed_sets", {
   actualReps: integer("actual_reps"),
   actualWeight: numeric("actual_weight"),
   actualTimeSeconds: integer("actual_time_seconds"),
+  actualDistance: numeric("actual_distance"),
   restSeconds: integer("rest_seconds"),
   isWarmup: boolean("is_warmup").default(false),
   createdAt: timestamp("created_at").defaultNow(),

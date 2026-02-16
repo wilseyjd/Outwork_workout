@@ -604,6 +604,22 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/sessions/:id/last-performance", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const session = await storage.getSession(userId, req.params.id as string);
+      if (!session) {
+        return res.status(404).json({ message: "Session not found" });
+      }
+      const exerciseIds = (session.exercises || []).map((e: any) => e.exerciseId);
+      const lastPerformance = await storage.getLastPerformance(userId, exerciseIds);
+      res.json(lastPerformance);
+    } catch (error) {
+      console.error("Error fetching last performance:", error);
+      res.status(500).json({ message: "Failed to fetch last performance" });
+    }
+  });
+
   app.get("/api/sessions/:id", isAuthenticated, async (req, res) => {
     try {
       const userId = getUserId(req);

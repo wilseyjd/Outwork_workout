@@ -93,6 +93,9 @@ export interface IStorage {
   // Exercise History
   getExerciseHistory(userId: string, exerciseId: string): Promise<any[]>;
 
+  // Last Performance
+  getLastPerformance(userId: string, exerciseIds: string[]): Promise<Record<string, PerformedSet[]>>;
+
   // Supplements
   getSupplements(userId: string): Promise<Supplement[]>;
   getSupplement(userId: string, id: string): Promise<Supplement | undefined>;
@@ -830,6 +833,61 @@ export class DatabaseStorage implements IStorage {
       ...row.performed_sets,
       session: row.workout_sessions,
     }));
+  }
+
+  // Last Performance - find most recent completed session for each exercise
+  async getLastPerformance(userId: string, exerciseIds: string[]): Promise<Record<string, PerformedSet[]>> {
+    if (exerciseIds.length === 0) return {};
+
+    // Query 1: Find the most recent completed session-exercise for each exerciseId
+    // Using a lateral join pattern via subquery
+    const latestSessionExercises = await db.select({
+      sessionExerciseId: sessionExercises.id,
+      exerciseId: sessionExercises.exerciseId,
+    })
+      .from(sessionExercises)
+      .innerJoin(workoutSessions, eq(sessionExercises.sessionId, workoutSessions.id))
+      .where(and(
+        eq(sessionExercises.userId, userId),
+        inArray(sessionExercises.exerciseId, exerciseIds),
+        sql`${workoutSessions.endedAt} IS NOT NULL`
+      ))
+      .orderBy(desc(workoutSessions.startedAt));
+
+    // Group by exerciseId, take the first (most recent) session-exercise per exercise
+    const latestByExercise = new Map<string, string>();
+    for (const row of latestSessionExercises) {
+      if (!latestByExercise.has(row.exerciseId)) {
+        latestByExercise.set(row.exerciseId, row.sessionExerciseId);
+      }
+    }
+
+    if (latestByExercise.size === 0) return {};
+
+    const sessionExerciseIds = Array.from(latestByExercise.values());
+
+    // Query 2: Fetch all performed sets for those session-exercise IDs
+    const sets = await db.select()
+      .from(performedSets)
+      .where(inArray(performedSets.sessionExerciseId, sessionExerciseIds))
+      .orderBy(performedSets.setNumber);
+
+    // Build the result map: exerciseId → sets
+    const sessionExerciseToExercise = new Map<string, string>();
+    latestByExercise.forEach((seId, exerciseId) => {
+      sessionExerciseToExercise.set(seId, exerciseId);
+    });
+
+    const result: Record<string, PerformedSet[]> = {};
+    for (const set of sets) {
+      const exerciseId = sessionExerciseToExercise.get(set.sessionExerciseId);
+      if (exerciseId) {
+        if (!result[exerciseId]) result[exerciseId] = [];
+        result[exerciseId].push(set);
+      }
+    }
+
+    return result;
   }
 
   // Supplements
