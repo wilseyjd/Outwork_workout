@@ -6,4 +6,4 @@ vite.config.ts.*
 *.tar.gz
 .env
 .vercel/output
-api/
+api/cookies.txt
