@@ -82,6 +82,7 @@ export interface IStorage {
   getActiveSession(userId: string): Promise<any | undefined>;
   startSession(userId: string, scheduleId: string): Promise<WorkoutSession>;
   createAdhocSession(userId: string): Promise<WorkoutSession>;
+  startSessionFromTemplate(userId: string, templateId: string): Promise<WorkoutSession>;
   endSession(userId: string, id: string, notes?: string): Promise<WorkoutSession | undefined>;
 
   // Session Exercises
@@ -89,6 +90,8 @@ export interface IStorage {
 
   // Performed Sets
   addPerformedSet(data: InsertPerformedSet): Promise<PerformedSet>;
+  updatePerformedSet(userId: string, setId: string, data: { actualReps?: number; actualWeight?: string; actualTimeSeconds?: number; actualDistance?: string; restSeconds?: number; isWarmup?: boolean }): Promise<PerformedSet | undefined>;
+  deletePerformedSet(userId: string, setId: string): Promise<void>;
 
   // Exercise History
   getExerciseHistory(userId: string, exerciseId: string): Promise<any[]>;
@@ -341,26 +344,26 @@ export class DatabaseStorage implements IStorage {
     const results: WorkoutTemplateExercise[] = [];
     let position = startPosition;
 
-    for (let round = 1; round <= totalRounds; round++) {
-      for (const ce of circuitExerciseRows) {
-        const [te] = await db.insert(workoutTemplateExercises).values({
-          userId,
-          templateId,
-          exerciseId: ce.exerciseId,
-          position,
-          circuitId,
-          circuitRound: round,
-          circuitRounds: totalRounds,
-          notes: ce.notes,
-        }).returning();
-        results.push(te);
-        position++;
+    for (const ce of circuitExerciseRows) {
+      const [te] = await db.insert(workoutTemplateExercises).values({
+        userId,
+        templateId,
+        exerciseId: ce.exerciseId,
+        position,
+        circuitId,
+        circuitRound: null,
+        circuitRounds: totalRounds,
+        notes: ce.notes,
+      }).returning();
+      results.push(te);
+      position++;
 
-        // Auto-create a planned set for every circuit exercise, using defaults if available
+      // Create one planned set per round, using defaults from circuit exercise
+      for (let round = 1; round <= totalRounds; round++) {
         const setValues: any = {
           userId,
           templateExerciseId: te.id,
-          setNumber: 1,
+          setNumber: round,
         };
         if (ce.defaultReps) setValues.targetReps = ce.defaultReps;
         if (ce.defaultWeight) setValues.targetWeight = ce.defaultWeight;
@@ -403,47 +406,31 @@ export class DatabaseStorage implements IStorage {
 
     if (existingTes.length === 0) return;
 
-    const currentRounds = existingTes[0].circuitRounds || 1;
+    // Fetch circuit exercise defaults for creating new planned sets
+    const circuitExerciseDefaults = await db.select({
+      exerciseId: circuitExercises.exerciseId,
+      defaultReps: circuitExercises.defaultReps,
+      defaultWeight: circuitExercises.defaultWeight,
+      defaultTimeSeconds: circuitExercises.defaultTimeSeconds,
+    }).from(circuitExercises)
+      .where(eq(circuitExercises.circuitId, circuitId))
+      .orderBy(circuitExercises.position);
+    const defaultsByExerciseId = new Map(circuitExerciseDefaults.map(ce => [ce.exerciseId, ce]));
 
-    // Get the unique exercises in the circuit (from round 1)
-    const round1Exercises = existingTes.filter(te => te.circuitRound === 1);
-    const exercisesPerRound = round1Exercises.length;
+    for (const te of existingTes) {
+      const existingSets = await db.select().from(plannedSets)
+        .where(eq(plannedSets.templateExerciseId, te.id))
+        .orderBy(plannedSets.setNumber);
+      const currentCount = existingSets.length;
 
-    if (newRounds > currentRounds) {
-      // Add more rounds - fetch circuit exercise defaults for auto-creating planned sets
-      const circuitExerciseDefaults = await db.select({
-        exerciseId: circuitExercises.exerciseId,
-        defaultReps: circuitExercises.defaultReps,
-        defaultWeight: circuitExercises.defaultWeight,
-        defaultTimeSeconds: circuitExercises.defaultTimeSeconds,
-      }).from(circuitExercises)
-        .where(eq(circuitExercises.circuitId, circuitId))
-        .orderBy(circuitExercises.position);
-      const defaultsByExerciseId = new Map(circuitExerciseDefaults.map(ce => [ce.exerciseId, ce]));
-
-      const lastPosition = Math.max(...existingTes.map(te => te.position));
-      let position = lastPosition + 1;
-
-      for (let round = currentRounds + 1; round <= newRounds; round++) {
-        for (const r1 of round1Exercises) {
-          const [newTe] = await db.insert(workoutTemplateExercises).values({
-            userId,
-            templateId,
-            exerciseId: r1.exerciseId,
-            position,
-            circuitId,
-            circuitRound: round,
-            circuitRounds: newRounds,
-            notes: r1.notes,
-          }).returning();
-          position++;
-
-          // Auto-create planned set for new round, using circuit exercise defaults if available
-          const ce = defaultsByExerciseId.get(r1.exerciseId);
+      if (newRounds > currentCount) {
+        // Add new planned sets
+        const ce = defaultsByExerciseId.get(te.exerciseId);
+        for (let s = currentCount + 1; s <= newRounds; s++) {
           const setValues: any = {
             userId,
-            templateExerciseId: newTe.id,
-            setNumber: 1,
+            templateExerciseId: te.id,
+            setNumber: s,
           };
           if (ce?.defaultReps) setValues.targetReps = ce.defaultReps;
           if (ce?.defaultWeight) setValues.targetWeight = ce.defaultWeight;
@@ -451,17 +438,15 @@ export class DatabaseStorage implements IStorage {
 
           await db.insert(plannedSets).values(setValues);
         }
-      }
-    } else if (newRounds < currentRounds) {
-      // Remove excess rounds
-      const toRemove = existingTes.filter(te => (te.circuitRound || 0) > newRounds);
-      for (const te of toRemove) {
-        await db.delete(plannedSets).where(eq(plannedSets.templateExerciseId, te.id));
-        await db.delete(workoutTemplateExercises).where(eq(workoutTemplateExercises.id, te.id));
+      } else if (newRounds < currentCount) {
+        // Remove excess planned sets
+        for (const set of existingSets.filter(s => s.setNumber > newRounds)) {
+          await db.delete(plannedSets).where(eq(plannedSets.id, set.id));
+        }
       }
     }
 
-    // Update circuitRounds on all remaining rows
+    // Update circuitRounds on all template exercises
     await db.update(workoutTemplateExercises)
       .set({ circuitRounds: newRounds })
       .where(and(
@@ -792,6 +777,33 @@ export class DatabaseStorage implements IStorage {
     return session;
   }
 
+  async startSessionFromTemplate(userId: string, templateId: string): Promise<WorkoutSession> {
+    const [session] = await db.insert(workoutSessions).values({
+      userId,
+      templateId,
+      startedAt: new Date(),
+    }).returning();
+
+    const templateExs = await db.select().from(workoutTemplateExercises)
+      .where(eq(workoutTemplateExercises.templateId, templateId))
+      .orderBy(workoutTemplateExercises.position);
+
+    for (const te of templateExs) {
+      await db.insert(sessionExercises).values({
+        userId,
+        sessionId: session.id,
+        exerciseId: te.exerciseId,
+        position: te.position,
+        circuitId: te.circuitId,
+        circuitRound: te.circuitRound,
+        circuitRounds: te.circuitRounds,
+        notes: te.notes,
+      });
+    }
+
+    return session;
+  }
+
   async endSession(userId: string, id: string, notes?: string): Promise<WorkoutSession | undefined> {
     const [session] = await db.update(workoutSessions)
       .set({ endedAt: new Date(), notes })
@@ -815,6 +827,18 @@ export class DatabaseStorage implements IStorage {
   async addPerformedSet(data: InsertPerformedSet): Promise<PerformedSet> {
     const [set] = await db.insert(performedSets).values(data).returning();
     return set;
+  }
+
+  async updatePerformedSet(userId: string, setId: string, data: { actualReps?: number; actualWeight?: string; actualTimeSeconds?: number; actualDistance?: string; restSeconds?: number; isWarmup?: boolean }): Promise<PerformedSet | undefined> {
+    const [set] = await db.update(performedSets)
+      .set(data)
+      .where(and(eq(performedSets.id, setId), eq(performedSets.userId, userId)))
+      .returning();
+    return set;
+  }
+
+  async deletePerformedSet(userId: string, setId: string): Promise<void> {
+    await db.delete(performedSets).where(and(eq(performedSets.id, setId), eq(performedSets.userId, userId)));
   }
 
   // Exercise History

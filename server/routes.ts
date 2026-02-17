@@ -656,6 +656,21 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/sessions/start-from-template/:templateId", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const template = await storage.getTemplate(userId, req.params.templateId as string);
+      if (!template) {
+        return res.status(404).json({ message: "Template not found" });
+      }
+      const session = await storage.startSessionFromTemplate(userId, req.params.templateId as string);
+      res.status(201).json(session);
+    } catch (error) {
+      console.error("Error starting session from template:", error);
+      res.status(500).json({ message: "Failed to start session from template" });
+    }
+  });
+
   app.post("/api/sessions/:id/end", isAuthenticated, async (req, res) => {
     try {
       const userId = getUserId(req);
@@ -696,6 +711,31 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error adding performed set:", error);
       res.status(500).json({ message: "Failed to log set" });
+    }
+  });
+
+  app.patch("/api/sessions/:sessionId/exercises/:exerciseId/sets/:setId", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const set = await storage.updatePerformedSet(userId, req.params.setId as string, req.body);
+      if (!set) {
+        return res.status(404).json({ message: "Set not found" });
+      }
+      res.json(set);
+    } catch (error) {
+      console.error("Error updating performed set:", error);
+      res.status(500).json({ message: "Failed to update set" });
+    }
+  });
+
+  app.delete("/api/sessions/:sessionId/exercises/:exerciseId/sets/:setId", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      await storage.deletePerformedSet(userId, req.params.setId as string);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting performed set:", error);
+      res.status(500).json({ message: "Failed to delete set" });
     }
   });
 

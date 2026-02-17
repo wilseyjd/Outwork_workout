@@ -876,11 +876,6 @@ export default function TemplateDetail() {
                                     {templateExercise.exercise?.category && (
                                       <span className="text-xs text-muted-foreground">{templateExercise.exercise.category}</span>
                                     )}
-                                    {templateExercise.circuitRound && (
-                                      <Badge variant="outline" className="text-[10px] h-4 px-1">
-                                        Rd {templateExercise.circuitRound}
-                                      </Badge>
-                                    )}
                                   </div>
                                 </div>
                               </div>

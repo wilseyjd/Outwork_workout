@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { AppLayout } from "@/components/app-layout";
 import { Card } from "@/components/ui/card";
@@ -6,7 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ListSkeleton } from "@/components/loading-skeleton";
 import { EmptyState } from "@/components/empty-state";
-import { Calendar, Play, CheckCircle2, XCircle, Clock, Dumbbell, Plus } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Calendar, Play, CheckCircle2, XCircle, Clock, Dumbbell, Plus, Search } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { format } from "date-fns";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -21,10 +23,16 @@ interface ActiveSession extends WorkoutSession {
   template?: WorkoutTemplate;
 }
 
+interface TemplateWithCount extends WorkoutTemplate {
+  exerciseCount: number;
+}
+
 export default function Today() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const today = format(new Date(), "yyyy-MM-dd");
+  const [startWorkoutOpen, setStartWorkoutOpen] = useState(false);
+  const [templateSearchQuery, setTemplateSearchQuery] = useState("");
 
   const { data: todaySchedule, isLoading: scheduleLoading } = useQuery<ScheduleWithTemplate[]>({
     queryKey: ["/api/schedule", today],
@@ -37,10 +45,37 @@ export default function Today() {
   const startWorkoutMutation = useMutation({
     mutationFn: async (scheduleId: string) => {
       const res = await apiRequest("POST", `/api/sessions/start/${scheduleId}`);
-      return res;
+      return res as WorkoutSession;
     },
     onSuccess: (data: WorkoutSession) => {
       queryClient.invalidateQueries({ queryKey: ["/api/schedule"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sessions"] });
+      navigate(`/session/${data.id}`);
+    },
+    onError: () => {
+      toast({ title: "Failed to start workout", variant: "destructive" });
+    },
+  });
+
+  const { data: templates } = useQuery<TemplateWithCount[]>({
+    queryKey: ["/api/templates"],
+    enabled: startWorkoutOpen,
+  });
+
+  const filteredTemplates = useMemo(() => {
+    if (!templates) return [];
+    if (!templateSearchQuery.trim()) return templates;
+    const q = templateSearchQuery.toLowerCase();
+    return templates.filter((t) => t.name.toLowerCase().includes(q));
+  }, [templates, templateSearchQuery]);
+
+  const startFromTemplateMutation = useMutation({
+    mutationFn: async (templateId: string) => {
+      const res = await apiRequest("POST", `/api/sessions/start-from-template/${templateId}`);
+      return res as WorkoutSession;
+    },
+    onSuccess: (data: WorkoutSession) => {
+      setStartWorkoutOpen(false);
       queryClient.invalidateQueries({ queryKey: ["/api/sessions"] });
       navigate(`/session/${data.id}`);
     },
@@ -154,17 +189,71 @@ export default function Today() {
 
         {!activeSession && (
           <div className="pt-4">
-            <Button 
-              variant="outline" 
-              className="w-full" 
-              asChild
-              data-testid="button-start-adhoc"
-            >
-              <Link href="/session/new">
-                <Plus className="h-4 w-4 mr-2" />
-                Start ad-hoc workout
-              </Link>
-            </Button>
+            <Dialog open={startWorkoutOpen} onOpenChange={(open) => {
+              setStartWorkoutOpen(open);
+              if (!open) setTemplateSearchQuery("");
+            }}>
+              <DialogTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  data-testid="button-start-adhoc"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Start workout
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Start Workout</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-3 pt-2">
+                  {templates && templates.length > 0 && (
+                    <>
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          placeholder="Search templates..."
+                          value={templateSearchQuery}
+                          onChange={(e) => setTemplateSearchQuery(e.target.value)}
+                          className="pl-9"
+                        />
+                      </div>
+                      <div className="max-h-72 overflow-y-auto rounded-md border border-input">
+                        {filteredTemplates.length > 0 ? (
+                          filteredTemplates.map((template) => (
+                            <button
+                              key={template.id}
+                              onClick={() => startFromTemplateMutation.mutate(template.id)}
+                              disabled={startFromTemplateMutation.isPending}
+                              className="w-full text-left px-3 py-2 text-sm hover:bg-accent hover:text-accent-foreground transition-colors border-b border-border last:border-b-0"
+                            >
+                              <div className="font-medium">{template.name}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {template.exerciseCount} {template.exerciseCount === 1 ? "exercise" : "exercises"}
+                              </div>
+                            </button>
+                          ))
+                        ) : (
+                          <div className="p-3 text-sm text-muted-foreground">No templates found</div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => {
+                      setStartWorkoutOpen(false);
+                      navigate("/session/new");
+                    }}
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Start blank workout
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
           </div>
         )}
       </div>

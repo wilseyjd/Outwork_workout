@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation, Link } from "wouter";
 import { Card } from "@/components/ui/card";
@@ -13,7 +13,7 @@ import { PageSkeleton } from "@/components/loading-skeleton";
 import { EmptyState } from "@/components/empty-state";
 import { AppHeader } from "@/components/app-header";
 import { RestTimer } from "@/components/rest-timer";
-import { Play, Square, Plus, Check, Dumbbell, Clock, ChevronDown, ChevronUp, Save, Repeat, Search, Pencil, ArrowUp, ArrowDown } from "lucide-react";
+import { Play, Square, Plus, Check, Dumbbell, Clock, ChevronDown, ChevronUp, Save, Repeat, Search, Pencil, ArrowUp, ArrowDown, Trash2 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -136,6 +136,17 @@ export default function Session() {
   const [exerciseSearchQuery, setExerciseSearchQuery] = useState("");
   const [addSetForm, setAddSetForm] = useState<AddSetForm>({ ...defaultForm });
   const [restTimer, setRestTimer] = useState<number | null>(null);
+  const addSetGuard = useRef(false);
+  const [editingSet, setEditingSet] = useState<{
+    setId: string;
+    sessionExerciseId: string;
+    reps: string;
+    weight: string;
+    time: string;
+    distance: string;
+    rest: string;
+    isWarmup: boolean;
+  } | null>(null);
 
   const { data: session, isLoading } = useQuery<SessionWithDetails>({
     queryKey: ["/api/sessions", sessionId],
@@ -222,6 +233,48 @@ export default function Session() {
     onError: () => {
       toast({ title: "Failed to log set", variant: "destructive" });
     },
+    onSettled: () => {
+      addSetGuard.current = false;
+    },
+  });
+
+  const updateSetMutation = useMutation({
+    mutationFn: async ({ sessionExerciseId, setId, data }: {
+      sessionExerciseId: string;
+      setId: string;
+      data: {
+        actualReps?: number;
+        actualWeight?: string;
+        actualTimeSeconds?: number;
+        actualDistance?: string;
+        restSeconds?: number;
+        isWarmup?: boolean;
+      };
+    }) => {
+      return await apiRequest("PATCH", `/api/sessions/${sessionId}/exercises/${sessionExerciseId}/sets/${setId}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sessions", sessionId] });
+      setEditingSet(null);
+      toast({ title: "Set updated" });
+    },
+    onError: () => {
+      toast({ title: "Failed to update set", variant: "destructive" });
+    },
+  });
+
+  const deleteSetMutation = useMutation({
+    mutationFn: async ({ sessionExerciseId, setId }: { sessionExerciseId: string; setId: string }) => {
+      return await apiRequest("DELETE", `/api/sessions/${sessionId}/exercises/${sessionExerciseId}/sets/${setId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sessions", sessionId] });
+      setEditingSet(null);
+      toast({ title: "Set deleted" });
+    },
+    onError: () => {
+      toast({ title: "Failed to delete set", variant: "destructive" });
+    },
   });
 
   const endSessionMutation = useMutation({
@@ -259,6 +312,9 @@ export default function Session() {
   };
 
   const handleAddSet = (sessionExerciseId: string, currentSetsCount: number) => {
+    if (addSetGuard.current) return;
+    addSetGuard.current = true;
+
     const data: any = {
       setNumber: currentSetsCount + 1,
     };
@@ -274,6 +330,9 @@ export default function Session() {
   };
 
   const handleQuickLog = (sessionExercise: SessionExerciseWithDetails, preFill: Omit<AddSetForm, "exerciseId">) => {
+    if (addSetGuard.current) return;
+    addSetGuard.current = true;
+
     const currentSetsCount = sessionExercise.performedSets?.length || 0;
     const data: any = {
       setNumber: currentSetsCount + 1,
@@ -490,11 +549,6 @@ export default function Session() {
                     <div>
                       <div className="flex items-center gap-1">
                         <p className="font-medium">{sessionExercise.exercise?.name}</p>
-                        {sessionExercise.circuitRound && (
-                          <Badge variant="outline" className="text-[10px] h-4 px-1">
-                            Rd {sessionExercise.circuitRound}
-                          </Badge>
-                        )}
                       </div>
                       <p className="text-xs text-muted-foreground">
                         {completedSets}{plannedSetsCount > 0 ? `/${plannedSetsCount}` : ""} sets
@@ -560,11 +614,143 @@ export default function Session() {
                             }
                           }
 
+                          if (editingSet?.setId === set.id) {
+                            return (
+                              <div key={set.id} className="space-y-3 p-3 border border-primary rounded-lg" data-testid={`edit-set-${set.id}`}>
+                                <p className="text-xs font-medium text-muted-foreground">Edit Set {set.setNumber}</p>
+                                <div className={`grid ${gridCols} gap-3`}>
+                                  {tracking.reps && (
+                                    <div className="space-y-1">
+                                      <Label className="text-xs">Reps</Label>
+                                      <Input
+                                        type="number"
+                                        inputMode="numeric"
+                                        value={editingSet.reps}
+                                        onChange={(e) => setEditingSet(prev => prev ? { ...prev, reps: e.target.value } : null)}
+                                        className="h-12 text-lg"
+                                      />
+                                    </div>
+                                  )}
+                                  {tracking.weight && (
+                                    <div className="space-y-1">
+                                      <Label className="text-xs">Weight (lbs)</Label>
+                                      <Input
+                                        type="number"
+                                        inputMode="decimal"
+                                        value={editingSet.weight}
+                                        onChange={(e) => setEditingSet(prev => prev ? { ...prev, weight: e.target.value } : null)}
+                                        className="h-12 text-lg"
+                                      />
+                                    </div>
+                                  )}
+                                  {tracking.time && (
+                                    <div className="space-y-1">
+                                      <Label className="text-xs">Time (sec)</Label>
+                                      <Input
+                                        type="number"
+                                        inputMode="numeric"
+                                        value={editingSet.time}
+                                        onChange={(e) => setEditingSet(prev => prev ? { ...prev, time: e.target.value } : null)}
+                                        className="h-12 text-lg"
+                                      />
+                                    </div>
+                                  )}
+                                  {tracking.distance && (
+                                    <div className="space-y-1">
+                                      <Label className="text-xs">Distance (mi)</Label>
+                                      <Input
+                                        type="number"
+                                        inputMode="decimal"
+                                        value={editingSet.distance}
+                                        onChange={(e) => setEditingSet(prev => prev ? { ...prev, distance: e.target.value } : null)}
+                                        className="h-12 text-lg"
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="space-y-1">
+                                  <Label className="text-xs">Rest (sec)</Label>
+                                  <Input
+                                    type="number"
+                                    inputMode="numeric"
+                                    value={editingSet.rest}
+                                    onChange={(e) => setEditingSet(prev => prev ? { ...prev, rest: e.target.value } : null)}
+                                  />
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Checkbox
+                                    id={`edit-warmup-${set.id}`}
+                                    checked={editingSet.isWarmup}
+                                    onCheckedChange={(checked) => setEditingSet(prev => prev ? { ...prev, isWarmup: !!checked } : null)}
+                                  />
+                                  <Label htmlFor={`edit-warmup-${set.id}`} className="text-sm">Warmup</Label>
+                                </div>
+                                <div className="flex gap-2">
+                                  <Button
+                                    className="flex-1"
+                                    onClick={() => {
+                                      const data: any = {};
+                                      if (editingSet.reps) data.actualReps = parseInt(editingSet.reps);
+                                      else data.actualReps = null;
+                                      if (editingSet.weight) data.actualWeight = editingSet.weight;
+                                      else data.actualWeight = null;
+                                      if (editingSet.time) data.actualTimeSeconds = parseInt(editingSet.time);
+                                      else data.actualTimeSeconds = null;
+                                      if (editingSet.distance) data.actualDistance = editingSet.distance;
+                                      else data.actualDistance = null;
+                                      if (editingSet.rest) data.restSeconds = parseInt(editingSet.rest);
+                                      else data.restSeconds = null;
+                                      data.isWarmup = editingSet.isWarmup;
+                                      updateSetMutation.mutate({
+                                        sessionExerciseId: editingSet.sessionExerciseId,
+                                        setId: editingSet.setId,
+                                        data,
+                                      });
+                                    }}
+                                    disabled={updateSetMutation.isPending}
+                                  >
+                                    <Save className="h-4 w-4 mr-2" />
+                                    Save
+                                  </Button>
+                                  <Button
+                                    variant="destructive"
+                                    size="icon"
+                                    onClick={() => {
+                                      deleteSetMutation.mutate({
+                                        sessionExerciseId: editingSet.sessionExerciseId,
+                                        setId: editingSet.setId,
+                                      });
+                                    }}
+                                    disabled={deleteSetMutation.isPending}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                  <Button variant="outline" onClick={() => setEditingSet(null)}>
+                                    Cancel
+                                  </Button>
+                                </div>
+                              </div>
+                            );
+                          }
+
                           return (
                             <div
                               key={set.id}
-                              className="flex items-center justify-between px-3 py-2 bg-green-50 dark:bg-green-950/20 rounded-lg text-sm"
+                              className={`flex items-center justify-between px-3 py-2 bg-green-50 dark:bg-green-950/20 rounded-lg text-sm ${isActive ? "cursor-pointer hover:bg-green-100 dark:hover:bg-green-950/30" : ""}`}
                               data-testid={`row-set-${set.id}`}
+                              onClick={() => {
+                                if (!isActive) return;
+                                setEditingSet({
+                                  setId: set.id,
+                                  sessionExerciseId: sessionExercise.id,
+                                  reps: set.actualReps?.toString() || "",
+                                  weight: set.actualWeight?.toString() || "",
+                                  time: set.actualTimeSeconds?.toString() || "",
+                                  distance: (set as any).actualDistance?.toString() || "",
+                                  rest: set.restSeconds?.toString() || "",
+                                  isWarmup: set.isWarmup || false,
+                                });
+                              }}
                             >
                               <div className="flex items-center gap-2">
                                 <Check className="h-4 w-4 text-green-600" />

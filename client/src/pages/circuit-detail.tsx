@@ -33,10 +33,7 @@ export default function CircuitDetail() {
   const [exerciseSearchQuery, setExerciseSearchQuery] = useState("");
   const [editingRestId, setEditingRestId] = useState<string | null>(null);
   const [restValue, setRestValue] = useState("");
-  const [editingDefaultsId, setEditingDefaultsId] = useState<string | null>(null);
-  const [defaultReps, setDefaultReps] = useState("");
-  const [defaultWeight, setDefaultWeight] = useState("");
-  const [defaultTime, setDefaultTime] = useState("");
+
 
   const { data: circuit, isLoading } = useQuery<CircuitWithDetails>({
     queryKey: ["/api/circuits", circuitId],
@@ -96,8 +93,6 @@ export default function CircuitDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/circuits", circuitId] });
       setEditingRestId(null);
-      setEditingDefaultsId(null);
-      toast({ title: "Exercise updated" });
     },
     onError: () => {
       toast({ title: "Failed to update exercise", variant: "destructive" });
@@ -262,17 +257,23 @@ export default function CircuitDetail() {
                   </div>
                 </div>
 
-                {/* Default values row */}
-                {editingDefaultsId === ce.id ? (
+                {/* Default values row - inline autosave on blur */}
+                {!circuit.isSystem && (
                   <div className="flex items-center gap-2 ml-[72px]">
                     <div className="flex items-center gap-1">
                       <Input
                         className="w-16 h-7 text-xs"
                         type="number"
+                        inputMode="numeric"
                         min="0"
-                        placeholder="Reps"
-                        value={defaultReps}
-                        onChange={(e) => setDefaultReps(e.target.value)}
+                        placeholder="—"
+                        defaultValue={ce.defaultReps?.toString() || ""}
+                        onBlur={(e) => {
+                          const val = e.target.value ? parseInt(e.target.value) : null;
+                          if (val !== (ce.defaultReps ?? null)) {
+                            updateExerciseMutation.mutate({ id: ce.id, data: { defaultReps: val } });
+                          }
+                        }}
                       />
                       <span className="text-xs text-muted-foreground">reps</span>
                     </div>
@@ -280,10 +281,16 @@ export default function CircuitDetail() {
                       <Input
                         className="w-16 h-7 text-xs"
                         type="number"
+                        inputMode="decimal"
                         min="0"
-                        placeholder="Wt"
-                        value={defaultWeight}
-                        onChange={(e) => setDefaultWeight(e.target.value)}
+                        placeholder="—"
+                        defaultValue={ce.defaultWeight?.toString() || ""}
+                        onBlur={(e) => {
+                          const val = e.target.value || null;
+                          if (val !== (ce.defaultWeight ?? null)) {
+                            updateExerciseMutation.mutate({ id: ce.id, data: { defaultWeight: val } });
+                          }
+                        }}
                       />
                       <span className="text-xs text-muted-foreground">lbs</span>
                     </div>
@@ -291,58 +298,30 @@ export default function CircuitDetail() {
                       <Input
                         className="w-16 h-7 text-xs"
                         type="number"
+                        inputMode="numeric"
                         min="0"
-                        placeholder="Time"
-                        value={defaultTime}
-                        onChange={(e) => setDefaultTime(e.target.value)}
+                        placeholder="—"
+                        defaultValue={ce.defaultTimeSeconds?.toString() || ""}
+                        onBlur={(e) => {
+                          const val = e.target.value ? parseInt(e.target.value) : null;
+                          if (val !== (ce.defaultTimeSeconds ?? null)) {
+                            updateExerciseMutation.mutate({ id: ce.id, data: { defaultTimeSeconds: val } });
+                          }
+                        }}
                       />
                       <span className="text-xs text-muted-foreground">s</span>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 text-xs px-2"
-                      onClick={() => {
-                        updateExerciseMutation.mutate({
-                          id: ce.id,
-                          data: {
-                            defaultReps: defaultReps ? parseInt(defaultReps) : null,
-                            defaultWeight: defaultWeight || null,
-                            defaultTimeSeconds: defaultTime ? parseInt(defaultTime) : null,
-                          },
-                        });
-                      }}
-                    >
-                      Save
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 text-xs px-2"
-                      onClick={() => setEditingDefaultsId(null)}
-                    >
-                      Cancel
-                    </Button>
                   </div>
-                ) : (
-                  <button
-                    className="flex items-center gap-1.5 ml-[72px] text-xs text-muted-foreground hover:text-foreground transition-colors"
-                    onClick={() => {
-                      if (circuit.isSystem) return;
-                      setEditingDefaultsId(ce.id);
-                      setDefaultReps(ce.defaultReps?.toString() || "");
-                      setDefaultWeight(ce.defaultWeight?.toString() || "");
-                      setDefaultTime(ce.defaultTimeSeconds?.toString() || "");
-                    }}
-                    disabled={circuit.isSystem}
-                  >
+                )}
+                {circuit.isSystem && (
+                  <div className="flex items-center gap-1.5 ml-[72px] text-xs text-muted-foreground">
                     <span>Defaults:</span>
                     <span>{ce.defaultReps ? `${ce.defaultReps} reps` : "—"}</span>
                     <span>·</span>
                     <span>{ce.defaultWeight ? `${ce.defaultWeight} lbs` : "—"}</span>
                     <span>·</span>
                     <span>{ce.defaultTimeSeconds ? `${ce.defaultTimeSeconds}s` : "—"}</span>
-                  </button>
+                  </div>
                 )}
               </Card>
             ))}
