@@ -9,11 +9,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PageSkeleton } from "@/components/loading-skeleton";
 import { EmptyState } from "@/components/empty-state";
 import { AppHeader } from "@/components/app-header";
 import { RestTimer } from "@/components/rest-timer";
-import { Play, Square, Plus, Check, Dumbbell, Clock, ChevronDown, ChevronUp, Save, Repeat, Search, Pencil, ArrowUp, ArrowDown, Trash2 } from "lucide-react";
+import { Play, Square, Plus, Check, Dumbbell, Clock, ChevronDown, ChevronUp, Save, Repeat, Search, Pencil, ArrowUp, ArrowDown, Trash2, ArrowLeft } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -134,6 +135,9 @@ export default function Session() {
   const [endDialogOpen, setEndDialogOpen] = useState(false);
   const [addExerciseOpen, setAddExerciseOpen] = useState(false);
   const [exerciseSearchQuery, setExerciseSearchQuery] = useState("");
+  const [createExerciseOpen, setCreateExerciseOpen] = useState(false);
+  const [newExerciseName, setNewExerciseName] = useState("");
+  const [newExerciseCategory, setNewExerciseCategory] = useState("");
   const [addSetForm, setAddSetForm] = useState<AddSetForm>({ ...defaultForm });
   const [restTimer, setRestTimer] = useState<number | null>(null);
   const addSetGuard = useRef(false);
@@ -202,6 +206,25 @@ export default function Session() {
     },
     onError: () => {
       toast({ title: "Failed to add exercise", variant: "destructive" });
+    },
+  });
+
+  const exerciseCategories = ["Push", "Pull", "Legs", "Core", "Cardio", "Olympic", "Other"];
+
+  const createExerciseMutation = useMutation({
+    mutationFn: async ({ name, category }: { name: string; category: string }) => {
+      return await apiRequest<Exercise>("POST", "/api/exercises", { name, category });
+    },
+    onSuccess: (newExercise) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/exercises"] });
+      addExerciseMutation.mutate(newExercise.id);
+      setCreateExerciseOpen(false);
+      setNewExerciseName("");
+      setNewExerciseCategory("");
+      setExerciseSearchQuery("");
+    },
+    onError: () => {
+      toast({ title: "Failed to create exercise", variant: "destructive" });
     },
   });
 
@@ -924,7 +947,12 @@ export default function Session() {
         {isActive && (
           <Dialog open={addExerciseOpen} onOpenChange={(open) => {
             setAddExerciseOpen(open);
-            if (!open) setExerciseSearchQuery("");
+            if (!open) {
+              setExerciseSearchQuery("");
+              setCreateExerciseOpen(false);
+              setNewExerciseName("");
+              setNewExerciseCategory("");
+            }
           }}>
             <DialogTrigger asChild>
               <Button variant="outline" className="w-full h-12" data-testid="button-add-exercise">
@@ -936,38 +964,108 @@ export default function Session() {
               <DialogHeader>
                 <DialogTitle>Add Exercise</DialogTitle>
               </DialogHeader>
-              <div className="space-y-3 pt-2">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search exercises..."
-                    value={exerciseSearchQuery}
-                    onChange={(e) => setExerciseSearchQuery(e.target.value)}
-                    className="pl-9"
-                    data-testid="input-search-exercise"
-                  />
+              {createExerciseOpen ? (
+                <div className="space-y-3 pt-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setCreateExerciseOpen(false)}
+                    className="px-0"
+                  >
+                    <ArrowLeft className="h-4 w-4 mr-1" />
+                    Back to search
+                  </Button>
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <Label className="text-sm">Exercise Name</Label>
+                      <Input
+                        placeholder="e.g. Bulgarian Split Squat"
+                        value={newExerciseName}
+                        onChange={(e) => setNewExerciseName(e.target.value)}
+                        autoFocus
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-sm">Category</Label>
+                      <Select value={newExerciseCategory} onValueChange={setNewExerciseCategory}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select category" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {exerciseCategories.map((cat) => (
+                            <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Button
+                      className="w-full"
+                      onClick={() => createExerciseMutation.mutate({ name: newExerciseName, category: newExerciseCategory })}
+                      disabled={!newExerciseName.trim() || !newExerciseCategory || createExerciseMutation.isPending}
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Create & Add
+                    </Button>
+                  </div>
                 </div>
-                <div className="max-h-72 overflow-y-auto rounded-md border border-input">
-                  {filteredExercises && filteredExercises.length > 0 ? (
-                    filteredExercises.map((exercise) => (
-                      <button
-                        key={exercise.id}
-                        onClick={() => addExerciseMutation.mutate(exercise.id)}
-                        disabled={addExerciseMutation.isPending}
-                        className="w-full text-left px-3 py-2 text-sm hover:bg-accent hover:text-accent-foreground transition-colors border-b border-border last:border-b-0"
-                        data-testid={`option-add-exercise-${exercise.id}`}
-                      >
-                        <div className="font-medium">{exercise.name}</div>
-                        {exercise.category && (
-                          <div className="text-xs text-muted-foreground">{exercise.category}</div>
-                        )}
-                      </button>
-                    ))
-                  ) : (
-                    <div className="p-3 text-sm text-muted-foreground">No exercises found</div>
-                  )}
+              ) : (
+                <div className="space-y-3 pt-2">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search exercises..."
+                      value={exerciseSearchQuery}
+                      onChange={(e) => setExerciseSearchQuery(e.target.value)}
+                      className="pl-9"
+                      data-testid="input-search-exercise"
+                    />
+                  </div>
+                  <div className="max-h-72 overflow-y-auto rounded-md border border-input">
+                    {filteredExercises && filteredExercises.length > 0 ? (
+                      filteredExercises.map((exercise) => (
+                        <button
+                          key={exercise.id}
+                          onClick={() => addExerciseMutation.mutate(exercise.id)}
+                          disabled={addExerciseMutation.isPending}
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-accent hover:text-accent-foreground transition-colors border-b border-border last:border-b-0"
+                          data-testid={`option-add-exercise-${exercise.id}`}
+                        >
+                          <div className="font-medium">{exercise.name}</div>
+                          {exercise.category && (
+                            <div className="text-xs text-muted-foreground">{exercise.category}</div>
+                          )}
+                        </button>
+                      ))
+                    ) : (
+                      <div className="p-4 text-center space-y-2">
+                        <p className="text-sm text-muted-foreground">No exercises found</p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setNewExerciseName(exerciseSearchQuery);
+                            setCreateExerciseOpen(true);
+                          }}
+                        >
+                          <Plus className="h-4 w-4 mr-1" />
+                          Create "{exerciseSearchQuery || "new exercise"}"
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => {
+                      setNewExerciseName(exerciseSearchQuery);
+                      setCreateExerciseOpen(true);
+                    }}
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Create New Exercise
+                  </Button>
                 </div>
-              </div>
+              )}
             </DialogContent>
           </Dialog>
         )}
