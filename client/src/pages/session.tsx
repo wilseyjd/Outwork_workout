@@ -61,6 +61,27 @@ function getTracking(exercise?: Exercise): Tracking {
   return { ...defaultTracking, ...t };
 }
 
+function getUnits(exercise?: Exercise): { weight: string; distance: string; time: string } {
+  return {
+    weight:   exercise?.weightUnit   ?? "lbs",
+    distance: exercise?.distanceUnit ?? "mi",
+    time:     exercise?.timeUnit     ?? "sec",
+  };
+}
+
+function toStoredSeconds(timeStr: string, unit: string): number {
+  const val = parseFloat(timeStr) || 0;
+  return unit === "min" ? Math.round(val * 60) : Math.round(val);
+}
+
+function fromStoredSeconds(seconds: number, unit: string): string {
+  if (unit === "min") {
+    const mins = seconds / 60;
+    return Number.isInteger(mins) ? mins.toString() : mins.toFixed(1);
+  }
+  return seconds.toString();
+}
+
 function getPreFillValues(
   sessionExercise: SessionExerciseWithDetails,
   lastPerformance?: Record<string, PerformedSet[]>,
@@ -114,12 +135,19 @@ function getPreFillValues(
   return null;
 }
 
-function formatPreFillSummary(preFill: Omit<AddSetForm, "exerciseId">, tracking: Tracking): string {
+function formatPreFillSummary(
+  preFill: Omit<AddSetForm, "exerciseId">,
+  tracking: Tracking,
+  units: { weight: string; distance: string; time: string }
+): string {
   const parts: string[] = [];
-  if (tracking.weight && preFill.weight) parts.push(`${preFill.weight} lbs`);
+  if (tracking.weight && preFill.weight) parts.push(`${preFill.weight} ${units.weight}`);
   if (tracking.reps && preFill.reps) parts.push(`${preFill.reps} reps`);
-  if (tracking.time && preFill.time) parts.push(`${preFill.time}s`);
-  if (tracking.distance && preFill.distance) parts.push(`${preFill.distance} mi`);
+  if (tracking.time && preFill.time) {
+    const displayVal = fromStoredSeconds(parseInt(preFill.time), units.time);
+    parts.push(`${displayVal} ${units.time}`);
+  }
+  if (tracking.distance && preFill.distance) parts.push(`${preFill.distance} ${units.distance}`);
   return parts.length > 0 ? parts.join(" / ") : "";
 }
 
@@ -209,11 +237,14 @@ export default function Session() {
     },
   });
 
-  const exerciseCategories = ["Push", "Pull", "Legs", "Core", "Cardio", "Olympic", "Other"];
+  const exerciseCategories = ["Chest", "Arms", "Back", "Legs", "Core", "Cardio", "Other"];
 
   const createExerciseMutation = useMutation({
     mutationFn: async ({ name, category }: { name: string; category: string }) => {
-      return await apiRequest<Exercise>("POST", "/api/exercises", { name, category });
+      const defaultTracking = category === "Cardio"
+        ? { weight: false, reps: false, time: true, distance: true }
+        : { weight: true, reps: true, time: false, distance: false };
+      return await apiRequest<Exercise>("POST", "/api/exercises", { name, category, defaultTracking });
     },
     onSuccess: (newExercise) => {
       queryClient.invalidateQueries({ queryKey: ["/api/exercises"] });
@@ -334,22 +365,23 @@ export default function Session() {
     setAddSetForm({ ...defaultForm });
   };
 
-  const handleAddSet = (sessionExerciseId: string, currentSetsCount: number) => {
+  const handleAddSet = (sessionExercise: SessionExerciseWithDetails, currentSetsCount: number) => {
     if (addSetGuard.current) return;
     addSetGuard.current = true;
 
+    const units = getUnits(sessionExercise.exercise);
     const data: any = {
       setNumber: currentSetsCount + 1,
     };
 
     if (addSetForm.reps) data.actualReps = parseInt(addSetForm.reps);
     if (addSetForm.weight) data.actualWeight = addSetForm.weight;
-    if (addSetForm.time) data.actualTimeSeconds = parseInt(addSetForm.time);
+    if (addSetForm.time) data.actualTimeSeconds = toStoredSeconds(addSetForm.time, units.time);
     if (addSetForm.distance) data.actualDistance = addSetForm.distance;
     if (addSetForm.rest) data.restSeconds = parseInt(addSetForm.rest);
     data.isWarmup = addSetForm.isWarmup;
 
-    addSetMutation.mutate({ sessionExerciseId, data });
+    addSetMutation.mutate({ sessionExerciseId: sessionExercise.id, data });
   };
 
   const handleQuickLog = (sessionExercise: SessionExerciseWithDetails, preFill: Omit<AddSetForm, "exerciseId">) => {
@@ -372,9 +404,14 @@ export default function Session() {
   };
 
   const openFormWithPreFill = (sessionExercise: SessionExerciseWithDetails) => {
+    const units = getUnits(sessionExercise.exercise);
     const preFill = getPreFillValues(sessionExercise, lastPerformance);
     if (preFill) {
-      setAddSetForm({ exerciseId: sessionExercise.id, ...preFill });
+      setAddSetForm({
+        exerciseId: sessionExercise.id,
+        ...preFill,
+        time: preFill.time ? fromStoredSeconds(parseInt(preFill.time), units.time) : "",
+      });
     } else {
       setAddSetForm({ ...defaultForm, exerciseId: sessionExercise.id });
     }
@@ -551,8 +588,9 @@ export default function Session() {
             const completedSets = sessionExercise.performedSets?.length || 0;
             const plannedSetsCount = sessionExercise.plannedSets?.length || 0;
             const tracking = getTracking(sessionExercise.exercise);
+            const units = getUnits(sessionExercise.exercise);
             const preFill = isActive ? getPreFillValues(sessionExercise, lastPerformance) : null;
-            const preFillSummary = preFill ? formatPreFillSummary(preFill, tracking) : "";
+            const preFillSummary = preFill ? formatPreFillSummary(preFill, tracking, units) : "";
             const lastSets = lastPerformance?.[sessionExercise.exerciseId];
 
             // Count enabled tracking fields (excluding rest which always shows)
@@ -595,9 +633,9 @@ export default function Session() {
                           {sessionExercise.plannedSets.map((set) => (
                             <Badge key={set.id} variant="outline" className="text-xs">
                               {set.targetReps && `${set.targetReps}\u00d7`}
-                              {set.targetWeight && `${set.targetWeight}lbs`}
-                              {set.targetTimeSeconds && `${set.targetTimeSeconds}s`}
-                              {(set as any).targetDistance && `${(set as any).targetDistance}mi`}
+                              {set.targetWeight && `${set.targetWeight}${units.weight}`}
+                              {set.targetTimeSeconds && `${fromStoredSeconds(set.targetTimeSeconds, units.time)}${units.time}`}
+                              {(set as any).targetDistance && `${(set as any).targetDistance}${units.distance}`}
                             </Badge>
                           ))}
                         </div>
@@ -609,12 +647,12 @@ export default function Session() {
                       <div className="p-2 bg-blue-50 dark:bg-blue-950/20 rounded-lg">
                         <p className="text-xs font-medium text-blue-600 dark:text-blue-400 mb-2">Last Time</p>
                         <div className="flex flex-wrap gap-2">
-                          {lastSets.map((set, i) => (
+                          {lastSets.map((set) => (
                             <Badge key={set.id} variant="outline" className="text-xs border-blue-200 dark:border-blue-800">
                               {set.actualReps && `${set.actualReps}\u00d7`}
-                              {set.actualWeight && `${set.actualWeight}lbs`}
-                              {set.actualTimeSeconds && `${set.actualTimeSeconds}s`}
-                              {(set as any).actualDistance && `${(set as any).actualDistance}mi`}
+                              {set.actualWeight && `${set.actualWeight}${units.weight}`}
+                              {set.actualTimeSeconds && `${fromStoredSeconds(set.actualTimeSeconds, units.time)}${units.time}`}
+                              {(set as any).actualDistance && `${(set as any).actualDistance}${units.distance}`}
                             </Badge>
                           ))}
                         </div>
@@ -656,7 +694,7 @@ export default function Session() {
                                   )}
                                   {tracking.weight && (
                                     <div className="space-y-1">
-                                      <Label className="text-xs">Weight (lbs)</Label>
+                                      <Label className="text-xs">Weight ({units.weight})</Label>
                                       <Input
                                         type="number"
                                         inputMode="decimal"
@@ -668,7 +706,7 @@ export default function Session() {
                                   )}
                                   {tracking.time && (
                                     <div className="space-y-1">
-                                      <Label className="text-xs">Time (sec)</Label>
+                                      <Label className="text-xs">Time ({units.time})</Label>
                                       <Input
                                         type="number"
                                         inputMode="numeric"
@@ -680,7 +718,7 @@ export default function Session() {
                                   )}
                                   {tracking.distance && (
                                     <div className="space-y-1">
-                                      <Label className="text-xs">Distance (mi)</Label>
+                                      <Label className="text-xs">Distance ({units.distance})</Label>
                                       <Input
                                         type="number"
                                         inputMode="decimal"
@@ -717,7 +755,7 @@ export default function Session() {
                                       else data.actualReps = null;
                                       if (editingSet.weight) data.actualWeight = editingSet.weight;
                                       else data.actualWeight = null;
-                                      if (editingSet.time) data.actualTimeSeconds = parseInt(editingSet.time);
+                                      if (editingSet.time) data.actualTimeSeconds = toStoredSeconds(editingSet.time, units.time);
                                       else data.actualTimeSeconds = null;
                                       if (editingSet.distance) data.actualDistance = editingSet.distance;
                                       else data.actualDistance = null;
@@ -768,7 +806,7 @@ export default function Session() {
                                   sessionExerciseId: sessionExercise.id,
                                   reps: set.actualReps?.toString() || "",
                                   weight: set.actualWeight?.toString() || "",
-                                  time: set.actualTimeSeconds?.toString() || "",
+                                  time: set.actualTimeSeconds ? fromStoredSeconds(set.actualTimeSeconds, units.time) : "",
                                   distance: (set as any).actualDistance?.toString() || "",
                                   rest: set.restSeconds?.toString() || "",
                                   isWarmup: set.isWarmup || false,
@@ -785,10 +823,10 @@ export default function Session() {
                                 {indicator === "down" && <ArrowDown className="h-3 w-3 text-red-500" />}
                               </div>
                               <div className="flex items-center gap-3 text-muted-foreground">
-                                {set.actualWeight && <span>{set.actualWeight} lbs</span>}
+                                {set.actualWeight && <span>{set.actualWeight} {units.weight}</span>}
                                 {set.actualReps && <span>{set.actualReps} reps</span>}
-                                {set.actualTimeSeconds && <span>{set.actualTimeSeconds}s</span>}
-                                {(set as any).actualDistance && <span>{(set as any).actualDistance} mi</span>}
+                                {set.actualTimeSeconds && <span>{fromStoredSeconds(set.actualTimeSeconds, units.time)} {units.time}</span>}
+                                {(set as any).actualDistance && <span>{(set as any).actualDistance} {units.distance}</span>}
                               </div>
                             </div>
                           );
@@ -818,11 +856,11 @@ export default function Session() {
                               )}
                               {tracking.weight && (
                                 <div className="space-y-1">
-                                  <Label className="text-xs">Weight (lbs)</Label>
+                                  <Label className="text-xs">Weight ({units.weight})</Label>
                                   <Input
                                     type="number"
                                     inputMode="decimal"
-                                    placeholder="135"
+                                    placeholder={units.weight === "kg" ? "60" : "135"}
                                     value={addSetForm.weight}
                                     onChange={(e) => setAddSetForm(prev => ({ ...prev, weight: e.target.value }))}
                                     className="h-12 text-lg"
@@ -832,11 +870,11 @@ export default function Session() {
                               )}
                               {tracking.time && (
                                 <div className="space-y-1">
-                                  <Label className="text-xs">Time (sec)</Label>
+                                  <Label className="text-xs">Time ({units.time})</Label>
                                   <Input
                                     type="number"
                                     inputMode="numeric"
-                                    placeholder="60"
+                                    placeholder={units.time === "min" ? "5" : "60"}
                                     value={addSetForm.time}
                                     onChange={(e) => setAddSetForm(prev => ({ ...prev, time: e.target.value }))}
                                     className="h-12 text-lg"
@@ -846,11 +884,11 @@ export default function Session() {
                               )}
                               {tracking.distance && (
                                 <div className="space-y-1">
-                                  <Label className="text-xs">Distance (mi)</Label>
+                                  <Label className="text-xs">Distance ({units.distance})</Label>
                                   <Input
                                     type="number"
                                     inputMode="decimal"
-                                    placeholder="1.0"
+                                    placeholder={units.distance === "km" ? "1.6" : "1.0"}
                                     value={addSetForm.distance}
                                     onChange={(e) => setAddSetForm(prev => ({ ...prev, distance: e.target.value }))}
                                     className="h-12 text-lg"
@@ -882,7 +920,7 @@ export default function Session() {
                             <div className="flex gap-2">
                               <Button
                                 className="flex-1 h-12"
-                                onClick={() => handleAddSet(sessionExercise.id, completedSets)}
+                                onClick={() => handleAddSet(sessionExercise, completedSets)}
                                 disabled={addSetMutation.isPending}
                                 data-testid="button-log-set"
                               >

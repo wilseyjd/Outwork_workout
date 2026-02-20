@@ -19,8 +19,35 @@ import { useToast } from "@/hooks/use-toast";
 import type { Exercise } from "@shared/schema";
 
 const categories = [
-  "Push", "Pull", "Legs", "Core", "Cardio", "Olympic", "Other"
+  "Chest", "Arms", "Back", "Legs", "Core", "Cardio", "Other"
 ];
+
+type ExerciseType = "weight-reps" | "distance-time" | "time-only" | "distance-only";
+
+const EXERCISE_TYPES: { value: ExerciseType; label: string }[] = [
+  { value: "weight-reps",   label: "Weight & Reps" },
+  { value: "distance-time", label: "Distance & Time" },
+  { value: "time-only",     label: "Time Only" },
+  { value: "distance-only", label: "Distance Only" },
+];
+
+const EXERCISE_TYPE_TRACKING: Record<ExerciseType, { weight: boolean; reps: boolean; time: boolean; distance: boolean }> = {
+  "weight-reps":   { weight: true,  reps: true,  time: false, distance: false },
+  "distance-time": { weight: false, reps: false, time: true,  distance: true  },
+  "time-only":     { weight: false, reps: false, time: true,  distance: false },
+  "distance-only": { weight: false, reps: false, time: false, distance: true  },
+};
+
+function inferExerciseType(
+  defaultTracking?: { weight: boolean; reps: boolean; time: boolean; distance: boolean } | null
+): ExerciseType {
+  if (!defaultTracking) return "weight-reps";
+  const { time, distance } = defaultTracking;
+  if (time && distance) return "distance-time";
+  if (time) return "time-only";
+  if (distance) return "distance-only";
+  return "weight-reps";
+}
 
 export default function Exercises() {
   const [, navigate] = useLocation();
@@ -32,6 +59,10 @@ export default function Exercises() {
   const [formCategory, setFormCategory] = useState("");
   const [formNotes, setFormNotes] = useState("");
   const [formUrl, setFormUrl] = useState("");
+  const [formExerciseType, setFormExerciseType] = useState<ExerciseType>("weight-reps");
+  const [formWeightUnit, setFormWeightUnit] = useState("lbs");
+  const [formDistanceUnit, setFormDistanceUnit] = useState("mi");
+  const [formTimeUnit, setFormTimeUnit] = useState("sec");
 
   const { data: exercises, isLoading } = useQuery<Exercise[]>({
     queryKey: ["/api/exercises"],
@@ -43,7 +74,7 @@ export default function Exercises() {
   );
 
   const createExerciseMutation = useMutation({
-    mutationFn: async (data: { name: string; category?: string; notes?: string; url?: string }) => {
+    mutationFn: async (data: Record<string, any>) => {
       return await apiRequest("POST", "/api/exercises", data);
     },
     onSuccess: () => {
@@ -57,7 +88,7 @@ export default function Exercises() {
   });
 
   const updateExerciseMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: { name: string; category?: string; notes?: string; url?: string } }) => {
+    mutationFn: async ({ id, data }: { id: string; data: Record<string, any> }) => {
       return await apiRequest("PATCH", `/api/exercises/${id}`, data);
     },
     onSuccess: () => {
@@ -103,6 +134,10 @@ export default function Exercises() {
     setFormCategory("");
     setFormNotes("");
     setFormUrl("");
+    setFormExerciseType("weight-reps");
+    setFormWeightUnit("lbs");
+    setFormDistanceUnit("mi");
+    setFormTimeUnit("sec");
   };
 
   const openEditDialog = (exercise: Exercise) => {
@@ -111,15 +146,31 @@ export default function Exercises() {
     setFormCategory(exercise.category || "");
     setFormNotes(exercise.notes || "");
     setFormUrl(exercise.url || "");
+    setFormExerciseType(inferExerciseType(exercise.defaultTracking as any));
+    setFormWeightUnit(exercise.weightUnit || "lbs");
+    setFormDistanceUnit(exercise.distanceUnit || "mi");
+    setFormTimeUnit(exercise.timeUnit || "sec");
     setDialogOpen(true);
   };
 
+  const handleCategoryChange = (cat: string) => {
+    setFormCategory(cat);
+    if (cat === "Cardio") {
+      setFormExerciseType("distance-time");
+    }
+  };
+
   const handleSave = () => {
-    const data = {
+    const tracking = EXERCISE_TYPE_TRACKING[formExerciseType];
+    const data: Record<string, any> = {
       name: formName,
       category: formCategory || undefined,
       notes: formNotes || undefined,
-      url: formUrl || undefined
+      url: formUrl || undefined,
+      defaultTracking: tracking,
+      weightUnit:   tracking.weight   ? formWeightUnit   : undefined,
+      distanceUnit: tracking.distance ? formDistanceUnit : undefined,
+      timeUnit:     tracking.time     ? formTimeUnit     : undefined,
     };
 
     if (editingExercise) {
@@ -179,7 +230,7 @@ export default function Exercises() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="ex-category">Category</Label>
-                <Select value={formCategory} onValueChange={setFormCategory}>
+                <Select value={formCategory} onValueChange={handleCategoryChange}>
                   <SelectTrigger data-testid="select-category">
                     <SelectValue placeholder="Select category" />
                   </SelectTrigger>
@@ -190,6 +241,61 @@ export default function Exercises() {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="space-y-2">
+                <Label>Exercise Type</Label>
+                <Select value={formExerciseType} onValueChange={(v) => setFormExerciseType(v as ExerciseType)} data-testid="select-exercise-type">
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {EXERCISE_TYPES.map(({ value, label }) => (
+                      <SelectItem key={value} value={value}>{label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {formExerciseType === "weight-reps" && (
+                <div className="space-y-2">
+                  <Label>Weight Unit</Label>
+                  <Select value={formWeightUnit} onValueChange={setFormWeightUnit}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="lbs">lbs</SelectItem>
+                      <SelectItem value="kg">kg</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {(formExerciseType === "distance-time" || formExerciseType === "distance-only") && (
+                <div className="space-y-2">
+                  <Label>Distance Unit</Label>
+                  <Select value={formDistanceUnit} onValueChange={setFormDistanceUnit}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="mi">miles</SelectItem>
+                      <SelectItem value="km">kilometers</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {(formExerciseType === "distance-time" || formExerciseType === "time-only") && (
+                <div className="space-y-2">
+                  <Label>Time Unit</Label>
+                  <Select value={formTimeUnit} onValueChange={setFormTimeUnit}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="sec">seconds</SelectItem>
+                      <SelectItem value="min">minutes</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label htmlFor="ex-url">Reference URL (optional)</Label>
                 <Input

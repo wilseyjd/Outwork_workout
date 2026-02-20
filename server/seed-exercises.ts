@@ -4,10 +4,20 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { db } from "./db";
 import { exercises } from "../shared/schema";
-import { eq, and, isNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+function resolveTracking(category: string | null, trackingCol: string | null) {
+    const t = trackingCol?.trim().toLowerCase();
+    if (t === "distance-time") return { weight: false, reps: false, time: true, distance: true };
+    if (t === "time-only")     return { weight: false, reps: false, time: true, distance: false };
+    if (t === "distance-only") return { weight: false, reps: false, time: false, distance: true };
+    if (t === "weight-reps")   return { weight: true, reps: true, time: false, distance: false };
+    if (category?.toLowerCase() === "cardio") return { weight: false, reps: false, time: true, distance: true };
+    return { weight: true, reps: true, time: false, distance: false };
+}
 
 async function seed() {
     try {
@@ -36,7 +46,8 @@ async function seed() {
             name: header.findIndex(h => h.trim().toLowerCase() === "name"),
             category: header.findIndex(h => h.trim().toLowerCase() === "category"),
             notes: header.findIndex(h => h.trim().toLowerCase() === "notes"),
-            url: header.findIndex(h => h.trim().toLowerCase() === "url")
+            url: header.findIndex(h => h.trim().toLowerCase() === "url"),
+            tracking: header.findIndex(h => h.trim().toLowerCase() === "tracking"),
         };
 
         console.log(`Found ${lines.length - 1} potential exercises to seed.`);
@@ -50,14 +61,18 @@ async function seed() {
             const category = values[indices.category]?.trim() || null;
             const notes = values[indices.notes]?.trim() || null;
             const url = values[indices.url]?.trim() || null;
+            const trackingCol = indices.tracking >= 0 ? (values[indices.tracking]?.trim() || null) : null;
 
             if (!name) continue;
+
+            const defaultTracking = resolveTracking(category, trackingCol);
 
             await db.insert(exercises).values({
                 name,
                 category: category || undefined,
                 notes: notes || undefined,
                 url: url || undefined,
+                defaultTracking,
                 isSystem: true,
                 userId: null
             });

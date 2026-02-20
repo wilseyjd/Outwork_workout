@@ -124,13 +124,30 @@ export interface IStorage {
   getPerformedExercises(userId: string): Promise<Exercise[]>;
 
   // Analytics
-  getExerciseAnalytics(userId: string, exerciseId: string): Promise<{
+  getExerciseAnalytics(userId: string, exerciseId: string, since?: Date): Promise<{
     date: string;
     maxWeight: number | null;
     totalEffort: number | null;
     bestTime: number | null;
     totalSets: number;
   }[]>;
+  getAnalyticsOverview(userId: string): Promise<{
+    workoutsThisWeek: number;
+    workoutsThisMonth: number;
+    currentStreak: number;
+    avgSessionsPerWeek: number;
+    weeklyVolume: { week: string; volume: number }[];
+  }>;
+  getTrainingVolume(userId: string, since?: Date): Promise<{ date: string; volume: number }[]>;
+  getPersonalRecords(userId: string): Promise<{
+    date: string;
+    exerciseId: string;
+    exerciseName: string;
+    metric: "weight" | "time";
+    value: number;
+  }[]>;
+  getVolumeByCategory(userId: string, since?: Date): Promise<{ category: string; volume: number }[]>;
+  getSessionDurations(userId: string, since?: Date): Promise<{ date: string; durationMin: number }[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1066,13 +1083,20 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Analytics
-  async getExerciseAnalytics(userId: string, exerciseId: string): Promise<{
+  async getExerciseAnalytics(userId: string, exerciseId: string, since?: Date): Promise<{
     date: string;
     maxWeight: number | null;
     totalEffort: number | null;
     bestTime: number | null;
     totalSets: number;
   }[]> {
+    const conditions = [
+      eq(performedSets.userId, userId),
+      eq(sessionExercises.exerciseId, exerciseId),
+      eq(performedSets.isWarmup, false),
+    ];
+    if (since) conditions.push(gte(workoutSessions.startedAt, since));
+
     const results = await db.select({
       date: sql<string>`DATE(${workoutSessions.startedAt})`.as('date'),
       maxWeight: sql<number>`MAX(${performedSets.actualWeight}::numeric)`.as('max_weight'),
@@ -1083,11 +1107,7 @@ export class DatabaseStorage implements IStorage {
       .from(performedSets)
       .innerJoin(sessionExercises, eq(performedSets.sessionExerciseId, sessionExercises.id))
       .innerJoin(workoutSessions, eq(sessionExercises.sessionId, workoutSessions.id))
-      .where(and(
-        eq(performedSets.userId, userId),
-        eq(sessionExercises.exerciseId, exerciseId),
-        eq(performedSets.isWarmup, false)
-      ))
+      .where(and(...conditions))
       .groupBy(sql`DATE(${workoutSessions.startedAt})`)
       .orderBy(sql`DATE(${workoutSessions.startedAt})`);
 
@@ -1098,6 +1118,236 @@ export class DatabaseStorage implements IStorage {
       bestTime: r.bestTime ? Number(r.bestTime) : null,
       totalSets: Number(r.totalSets),
     }));
+  }
+
+  async getAnalyticsOverview(userId: string): Promise<{
+    workoutsThisWeek: number;
+    workoutsThisMonth: number;
+    currentStreak: number;
+    avgSessionsPerWeek: number;
+    weeklyVolume: { week: string; volume: number }[];
+  }> {
+    const now = new Date();
+
+    // Start of current week (Monday)
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+    startOfWeek.setHours(0, 0, 0, 0);
+
+    // Start of current month
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    // 8 weeks ago (for volume trend + avg calculation)
+    const eightWeeksAgo = new Date(startOfWeek);
+    eightWeeksAgo.setDate(eightWeeksAgo.getDate() - 56);
+
+    const [thisWeekRows, thisMonthRows] = await Promise.all([
+      db.select({ id: workoutSessions.id })
+        .from(workoutSessions)
+        .where(and(
+          eq(workoutSessions.userId, userId),
+          gte(workoutSessions.startedAt, startOfWeek),
+          sql`${workoutSessions.endedAt} IS NOT NULL`
+        )),
+      db.select({ id: workoutSessions.id })
+        .from(workoutSessions)
+        .where(and(
+          eq(workoutSessions.userId, userId),
+          gte(workoutSessions.startedAt, startOfMonth),
+          sql`${workoutSessions.endedAt} IS NOT NULL`
+        )),
+    ]);
+
+    // Weekly session counts (all time, for streak; descending)
+    const sessionsByWeek = await db.select({
+      week: sql<string>`DATE_TRUNC('week', ${workoutSessions.startedAt})`.as('week'),
+      count: sql<number>`COUNT(${workoutSessions.id})`.as('count'),
+    })
+      .from(workoutSessions)
+      .where(and(
+        eq(workoutSessions.userId, userId),
+        sql`${workoutSessions.endedAt} IS NOT NULL`
+      ))
+      .groupBy(sql`DATE_TRUNC('week', ${workoutSessions.startedAt})`)
+      .orderBy(desc(sql`DATE_TRUNC('week', ${workoutSessions.startedAt})`));
+
+    // Streak: consecutive weeks from current going back
+    let streak = 0;
+    let checkMs = startOfWeek.getTime();
+    for (const row of sessionsByWeek) {
+      const rowMs = new Date(row.week).getTime();
+      const diffWeeks = Math.round((checkMs - rowMs) / (7 * 24 * 60 * 60 * 1000));
+      if (diffWeeks === 0) {
+        streak++;
+        checkMs -= 7 * 24 * 60 * 60 * 1000;
+      } else {
+        break;
+      }
+    }
+
+    // Avg sessions/week over last 8 weeks
+    const recentWeeks = sessionsByWeek.filter(w => new Date(w.week) >= eightWeeksAgo);
+    const avgSessionsPerWeek = Math.round(
+      (recentWeeks.reduce((sum, w) => sum + Number(w.count), 0) / 8) * 10
+    ) / 10;
+
+    // Weekly volume (last 8 weeks)
+    const volumeRows = await db.select({
+      week: sql<string>`DATE_TRUNC('week', ${workoutSessions.startedAt})`.as('week'),
+      volume: sql<number>`SUM(COALESCE(${performedSets.actualReps}, 0) * COALESCE(${performedSets.actualWeight}::numeric, 0))`.as('volume'),
+    })
+      .from(performedSets)
+      .innerJoin(sessionExercises, eq(performedSets.sessionExerciseId, sessionExercises.id))
+      .innerJoin(workoutSessions, eq(sessionExercises.sessionId, workoutSessions.id))
+      .where(and(
+        eq(performedSets.userId, userId),
+        gte(workoutSessions.startedAt, eightWeeksAgo),
+        eq(performedSets.isWarmup, false)
+      ))
+      .groupBy(sql`DATE_TRUNC('week', ${workoutSessions.startedAt})`)
+      .orderBy(sql`DATE_TRUNC('week', ${workoutSessions.startedAt})`);
+
+    return {
+      workoutsThisWeek: thisWeekRows.length,
+      workoutsThisMonth: thisMonthRows.length,
+      currentStreak: streak,
+      avgSessionsPerWeek,
+      weeklyVolume: volumeRows.map(r => ({
+        week: r.week.substring(0, 10), // YYYY-MM-DD
+        volume: Number(r.volume) || 0,
+      })),
+    };
+  }
+
+  async getTrainingVolume(userId: string, since?: Date): Promise<{ date: string; volume: number }[]> {
+    const conditions = [
+      eq(performedSets.userId, userId),
+      eq(performedSets.isWarmup, false),
+    ];
+    if (since) conditions.push(gte(workoutSessions.startedAt, since));
+
+    const results = await db.select({
+      date: sql<string>`DATE(${workoutSessions.startedAt})`.as('date'),
+      volume: sql<number>`SUM(COALESCE(${performedSets.actualReps}, 0) * COALESCE(${performedSets.actualWeight}::numeric, 0))`.as('volume'),
+    })
+      .from(performedSets)
+      .innerJoin(sessionExercises, eq(performedSets.sessionExerciseId, sessionExercises.id))
+      .innerJoin(workoutSessions, eq(sessionExercises.sessionId, workoutSessions.id))
+      .where(and(...conditions))
+      .groupBy(sql`DATE(${workoutSessions.startedAt})`)
+      .orderBy(sql`DATE(${workoutSessions.startedAt})`);
+
+    return results.map(r => ({
+      date: r.date,
+      volume: Number(r.volume) || 0,
+    }));
+  }
+
+  async getPersonalRecords(userId: string): Promise<{
+    date: string;
+    exerciseId: string;
+    exerciseName: string;
+    metric: "weight" | "time";
+    value: number;
+  }[]> {
+    // Get best weight and best time per exercise per day (aggregate to avoid counting
+    // multiple sets in the same session as separate PRs)
+    const dailyBests = await db.select({
+      date: sql<string>`DATE(${workoutSessions.startedAt})`.as('date'),
+      exerciseId: sessionExercises.exerciseId,
+      exerciseName: exercises.name,
+      bestWeight: sql<number>`MAX(${performedSets.actualWeight}::numeric)`.as('best_weight'),
+      bestTime: sql<number | null>`MIN(${performedSets.actualTimeSeconds})`.as('best_time'),
+    })
+      .from(performedSets)
+      .innerJoin(sessionExercises, eq(performedSets.sessionExerciseId, sessionExercises.id))
+      .innerJoin(workoutSessions, eq(sessionExercises.sessionId, workoutSessions.id))
+      .innerJoin(exercises, eq(sessionExercises.exerciseId, exercises.id))
+      .where(and(
+        eq(performedSets.userId, userId),
+        eq(performedSets.isWarmup, false)
+      ))
+      .groupBy(
+        sql`DATE(${workoutSessions.startedAt})`,
+        sessionExercises.exerciseId,
+        exercises.name
+      )
+      .orderBy(sql`DATE(${workoutSessions.startedAt})`);
+
+    // Scan forward per exercise to find PR events
+    const bests: Record<string, { weight: number; time: number | null }> = {};
+    const prs: { date: string; exerciseId: string; exerciseName: string; metric: "weight" | "time"; value: number }[] = [];
+
+    for (const row of dailyBests) {
+      const key = row.exerciseId;
+      if (!bests[key]) bests[key] = { weight: 0, time: null };
+      const best = bests[key];
+
+      const weight = Number(row.bestWeight) || 0;
+      const time = row.bestTime !== null ? Number(row.bestTime) : null;
+
+      if (weight > best.weight) {
+        best.weight = weight;
+        prs.push({ date: row.date, exerciseId: row.exerciseId, exerciseName: row.exerciseName, metric: "weight", value: weight });
+      }
+      if (time !== null && (best.time === null || time < best.time)) {
+        best.time = time;
+        prs.push({ date: row.date, exerciseId: row.exerciseId, exerciseName: row.exerciseName, metric: "time", value: time });
+      }
+    }
+
+    // Return newest first
+    return prs.reverse();
+  }
+
+  async getVolumeByCategory(userId: string, since?: Date): Promise<{ category: string; volume: number }[]> {
+    const conditions = [
+      eq(performedSets.userId, userId),
+      eq(performedSets.isWarmup, false),
+    ];
+    if (since) conditions.push(gte(workoutSessions.startedAt, since));
+
+    const results = await db.select({
+      category: exercises.category,
+      volume: sql<number>`SUM(COALESCE(${performedSets.actualReps}, 0) * COALESCE(${performedSets.actualWeight}::numeric, 0))`.as('volume'),
+    })
+      .from(performedSets)
+      .innerJoin(sessionExercises, eq(performedSets.sessionExerciseId, sessionExercises.id))
+      .innerJoin(workoutSessions, eq(sessionExercises.sessionId, workoutSessions.id))
+      .innerJoin(exercises, eq(sessionExercises.exerciseId, exercises.id))
+      .where(and(...conditions))
+      .groupBy(exercises.category)
+      .orderBy(desc(sql`SUM(COALESCE(${performedSets.actualReps}, 0) * COALESCE(${performedSets.actualWeight}::numeric, 0))`));
+
+    return results
+      .filter(r => Number(r.volume) > 0)
+      .map(r => ({
+        category: r.category || "Other",
+        volume: Number(r.volume) || 0,
+      }));
+  }
+
+  async getSessionDurations(userId: string, since?: Date): Promise<{ date: string; durationMin: number }[]> {
+    const conditions = [
+      eq(workoutSessions.userId, userId),
+      sql`${workoutSessions.endedAt} IS NOT NULL`,
+    ];
+    if (since) conditions.push(gte(workoutSessions.startedAt, since));
+
+    const results = await db.select({
+      date: sql<string>`DATE(${workoutSessions.startedAt})`.as('date'),
+      durationSec: sql<number>`EXTRACT(EPOCH FROM (${workoutSessions.endedAt} - ${workoutSessions.startedAt}))`.as('duration_sec'),
+    })
+      .from(workoutSessions)
+      .where(and(...conditions))
+      .orderBy(sql`DATE(${workoutSessions.startedAt})`);
+
+    return results
+      .filter(r => Number(r.durationSec) > 0)
+      .map(r => ({
+        date: r.date,
+        durationMin: Math.round(Number(r.durationSec) / 60),
+      }));
   }
 }
 

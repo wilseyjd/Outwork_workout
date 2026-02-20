@@ -154,6 +154,10 @@ export async function registerRoutes(
         name: `${original.name} (Copy)`,
         category: original.category || undefined,
         notes: original.notes || undefined,
+        defaultTracking: original.defaultTracking || undefined,
+        weightUnit: original.weightUnit || undefined,
+        distanceUnit: original.distanceUnit || undefined,
+        timeUnit: original.timeUnit || undefined,
       });
       res.status(201).json(copy);
     } catch (error) {
@@ -901,11 +905,80 @@ export async function registerRoutes(
   // ANALYTICS
   // ============================================
 
+  function parseSince(range: string | undefined): Date | undefined {
+    if (!range || range === "all") return undefined;
+    const now = new Date();
+    if (range === "1mo") return new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+    if (range === "3mo") return new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());
+    if (range === "6mo") return new Date(now.getFullYear(), now.getMonth() - 6, now.getDate());
+    if (range === "1yr") return new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+    return undefined;
+  }
+
+  app.get("/api/analytics/overview", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const overview = await storage.getAnalyticsOverview(userId);
+      res.json(overview);
+    } catch (error) {
+      console.error("Error fetching analytics overview:", error);
+      res.status(500).json({ message: "Failed to fetch analytics overview" });
+    }
+  });
+
+  app.get("/api/analytics/volume", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const since = parseSince(req.query.range as string | undefined);
+      const volume = await storage.getTrainingVolume(userId, since);
+      res.json(volume);
+    } catch (error) {
+      console.error("Error fetching training volume:", error);
+      res.status(500).json({ message: "Failed to fetch training volume" });
+    }
+  });
+
+  app.get("/api/analytics/prs", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const prs = await storage.getPersonalRecords(userId);
+      res.json(prs);
+    } catch (error) {
+      console.error("Error fetching personal records:", error);
+      res.status(500).json({ message: "Failed to fetch personal records" });
+    }
+  });
+
+  app.get("/api/analytics/volume-by-category", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const since = parseSince(req.query.range as string | undefined);
+      const data = await storage.getVolumeByCategory(userId, since);
+      res.json(data);
+    } catch (error) {
+      console.error("Error fetching volume by category:", error);
+      res.status(500).json({ message: "Failed to fetch volume by category" });
+    }
+  });
+
+  app.get("/api/analytics/sessions", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const since = parseSince(req.query.range as string | undefined);
+      const data = await storage.getSessionDurations(userId, since);
+      res.json(data);
+    } catch (error) {
+      console.error("Error fetching session durations:", error);
+      res.status(500).json({ message: "Failed to fetch session durations" });
+    }
+  });
+
   app.get("/api/analytics/exercise/:id", isAuthenticated, async (req, res) => {
     try {
       const userId = getUserId(req);
       const { id } = req.params;
-      const analytics = await storage.getExerciseAnalytics(userId, id);
+      const since = parseSince(req.query.range as string | undefined);
+      const analytics = await storage.getExerciseAnalytics(userId, id, since);
       res.json(analytics);
     } catch (error) {
       console.error("Error fetching exercise analytics:", error);
