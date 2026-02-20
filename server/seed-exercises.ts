@@ -4,7 +4,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { db } from "./db";
 import { exercises } from "../shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,11 +27,6 @@ async function seed() {
             process.exit(1);
         }
 
-        // Step 1: Clear existing system exercises for a clean reseed
-        console.log("Clearing existing system exercises...");
-        await db.delete(exercises).where(eq(exercises.isSystem, true));
-        console.log("Done clearing.");
-
         const content = fs.readFileSync(csvPath, "utf8");
         const lines = content.split("\n").filter(line => line.trim() !== "");
 
@@ -50,7 +45,14 @@ async function seed() {
             tracking: header.findIndex(h => h.trim().toLowerCase() === "tracking"),
         };
 
-        console.log(`Found ${lines.length - 1} potential exercises to seed.`);
+        // Load all existing system exercises once for name lookups
+        const existing = await db.select().from(exercises).where(eq(exercises.isSystem, true));
+        const existingByName = new Map(existing.map(e => [e.name.toLowerCase(), e]));
+
+        console.log(`Found ${lines.length - 1} exercises in CSV. ${existing.length} system exercises already in DB.`);
+
+        let inserted = 0;
+        let updated = 0;
 
         for (let i = 1; i < lines.length; i++) {
             const line = lines[i].trim();
@@ -66,20 +68,37 @@ async function seed() {
             if (!name) continue;
 
             const defaultTracking = resolveTracking(category, trackingCol);
+            const match = existingByName.get(name.toLowerCase());
 
-            await db.insert(exercises).values({
-                name,
-                category: category || undefined,
-                notes: notes || undefined,
-                url: url || undefined,
-                defaultTracking,
-                isSystem: true,
-                userId: null
-            });
-            console.log(`✅ Seeded: ${name}`);
+            if (match) {
+                // UPDATE existing — preserves the ID so workout history stays intact
+                await db.update(exercises)
+                    .set({
+                        category: category || undefined,
+                        notes: notes || undefined,
+                        url: url || undefined,
+                        defaultTracking,
+                    })
+                    .where(and(eq(exercises.id, match.id), eq(exercises.isSystem, true)));
+                console.log(`🔄 Updated: ${name}`);
+                updated++;
+            } else {
+                // INSERT new exercise
+                await db.insert(exercises).values({
+                    name,
+                    category: category || undefined,
+                    notes: notes || undefined,
+                    url: url || undefined,
+                    defaultTracking,
+                    isSystem: true,
+                    userId: null,
+                });
+                console.log(`✅ Inserted: ${name}`);
+                inserted++;
+            }
         }
 
-        console.log("Seeding completed successfully!");
+        console.log(`\nSeeding completed: ${inserted} inserted, ${updated} updated.`);
         process.exit(0);
     } catch (error) {
         console.error("Seeding failed:", error);
