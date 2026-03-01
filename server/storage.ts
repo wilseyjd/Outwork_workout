@@ -1,5 +1,6 @@
 import { db } from "./db";
 import { eq, desc, and, gte, lte, sql, or, inArray, not } from "drizzle-orm";
+import type { TrainingHistorySummary } from "./ai/types";
 import {
   exercises, hiddenSystemExercises, workoutTemplates, workoutTemplateExercises, plannedSets,
   workoutSchedule, workoutSessions, sessionExercises, performedSets,
@@ -148,6 +149,7 @@ export interface IStorage {
   }[]>;
   getVolumeByCategory(userId: string, since?: Date): Promise<{ category: string; volume: number }[]>;
   getSessionDurations(userId: string, since?: Date): Promise<{ date: string; durationMin: number }[]>;
+  getTrainingHistorySummary(userId: string): Promise<TrainingHistorySummary>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1348,6 +1350,50 @@ export class DatabaseStorage implements IStorage {
         date: r.date,
         durationMin: Math.round(Number(r.durationSec) / 60),
       }));
+  }
+
+  async getTrainingHistorySummary(userId: string): Promise<TrainingHistorySummary> {
+    const ninetyDaysAgo = new Date();
+    ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+
+    const [countRow] = await db.select({
+      count: sql<number>`COUNT(*)`.as('count'),
+    })
+      .from(workoutSessions)
+      .where(and(
+        eq(workoutSessions.userId, userId),
+        gte(workoutSessions.startedAt, ninetyDaysAgo),
+        sql`${workoutSessions.endedAt} IS NOT NULL`
+      ));
+
+    const topExercisesRows = await db.select({
+      name: exercises.name,
+      totalSets: sql<number>`COUNT(${performedSets.id})`.as('total_sets'),
+    })
+      .from(performedSets)
+      .innerJoin(sessionExercises, eq(performedSets.sessionExerciseId, sessionExercises.id))
+      .innerJoin(workoutSessions, eq(sessionExercises.sessionId, workoutSessions.id))
+      .innerJoin(exercises, eq(sessionExercises.exerciseId, exercises.id))
+      .where(and(
+        eq(performedSets.userId, userId),
+        gte(workoutSessions.startedAt, ninetyDaysAgo),
+        eq(performedSets.isWarmup, false)
+      ))
+      .groupBy(exercises.name)
+      .orderBy(desc(sql`COUNT(${performedSets.id})`))
+      .limit(10);
+
+    const allPrs = await this.getPersonalRecords(userId);
+    const recentPRs = allPrs.slice(0, 10).map(pr => ({
+      exercise: pr.exerciseName,
+      ...(pr.metric === 'weight' ? { weight: pr.value } : { timeSeconds: pr.value }),
+    }));
+
+    return {
+      workoutsLast90Days: Number(countRow?.count) || 0,
+      topExercises: topExercisesRows.map(r => ({ name: r.name, totalSets: Number(r.totalSets) })),
+      recentPRs,
+    };
   }
 }
 

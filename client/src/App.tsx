@@ -23,6 +23,7 @@ import ExerciseDetail from "@/pages/exercise-detail";
 import Session from "@/pages/session";
 import SessionView from "@/pages/session-view";
 import Analytics from "@/pages/analytics";
+import TrainingPlan from "@/pages/training-plan";
 import Terms from "@/pages/terms";
 import Privacy from "@/pages/privacy";
 import NotFound from "@/pages/not-found";
@@ -69,6 +70,7 @@ function AuthenticatedRoutes() {
       <Route path="/session/:id" component={Session} />
       <Route path="/session/:id/view" component={SessionView} />
       <Route path="/analytics" component={Analytics} />
+      <Route path="/training-plan" component={TrainingPlan} />
       <Route path="/terms" component={Terms} />
       <Route path="/privacy" component={Privacy} />
       <Route component={NotFound} />
