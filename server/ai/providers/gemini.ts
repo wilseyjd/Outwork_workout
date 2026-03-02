@@ -7,7 +7,7 @@ export async function generateWithGemini(input: PlanInput): Promise<PlanResponse
   const client = new GoogleGenerativeAI(apiKey);
 
   const model = client.getGenerativeModel({
-    model: "gemini-3.0-flash",
+    model: "gemini-3.1-pro-preview",
     systemInstruction: SYSTEM_PROMPT,
     generationConfig: {
       responseMimeType: "application/json",
