@@ -16,6 +16,7 @@ import { EmptyState } from "@/components/empty-state";
 import { Plus, Dumbbell, Calendar, ChevronRight, ChevronLeft, Edit, Trash2, Copy, MoreVertical, ListPlus, CalendarDays, Repeat } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Link, useLocation } from "wouter";
+import { ActiveTrainingPlanCard } from "@/components/active-training-plan-card";
 import { format, addDays, addWeeks, subWeeks, startOfWeek, endOfWeek, isSameDay, isWithinInterval } from "date-fns";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -170,6 +171,8 @@ export default function Plan() {
             </Button>
           </div>
         </div>
+
+        <ActiveTrainingPlanCard mode="plan" />
 
         <Tabs defaultValue="templates" className="space-y-4">
           <TabsList className="grid w-full grid-cols-2">

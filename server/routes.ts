@@ -1066,5 +1066,28 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/training-plan/active", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const goal = await storage.getActiveTrainingGoal(userId);
+      res.json(goal);
+    } catch (error: any) {
+      console.error("Error fetching active training goal:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch active training goal" });
+    }
+  });
+
+  app.delete("/api/training-plan/active", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const removeFutureWorkouts = req.query.removeFutureWorkouts === "true";
+      await storage.cancelActiveTrainingPlan(userId, { removeFutureWorkouts });
+      res.json({ ok: true });
+    } catch (error: any) {
+      console.error("Error cancelling training plan:", error);
+      res.status(500).json({ message: error.message || "Failed to cancel training plan" });
+    }
+  });
+
   return httpServer;
 }

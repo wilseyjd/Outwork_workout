@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { AppLayout } from "@/components/app-layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,7 +21,17 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useLocation } from "wouter";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -152,6 +162,11 @@ export default function TrainingPlan() {
   const [plan, setPlan] = useState<PlanResponse | null>(null);
   const [secondaryGoalInput, setSecondaryGoalInput] = useState("");
   const [loadingMsgIdx, setLoadingMsgIdx] = useState(0);
+  const [replaceConfirmOpen, setReplaceConfirmOpen] = useState(false);
+
+  const { data: activeGoal } = useQuery<{ id: string; primaryGoal: string } | null>({
+    queryKey: ["/api/training-plan/active"],
+  });
 
   useEffect(() => {
     if (mode !== "loading" && mode !== "accepting") return;
@@ -216,6 +231,8 @@ export default function TrainingPlan() {
       setLoadingMsgIdx(0);
     },
     onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/training-plan/active"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/schedule"] });
       toast({
         title: "Training plan is active!",
         description: `${data.scheduleCount} workouts scheduled across ${plan?.overallStructure.totalWeeks ?? "?"} weeks.`,
@@ -422,7 +439,13 @@ export default function TrainingPlan() {
           <div className="space-y-2 pb-4">
             <Button
               className="w-full"
-              onClick={() => acceptMutation.mutate()}
+              onClick={() => {
+                if (activeGoal) {
+                  setReplaceConfirmOpen(true);
+                } else {
+                  acceptMutation.mutate();
+                }
+              }}
               disabled={acceptMutation.isPending}
             >
               {acceptMutation.isPending ? (
@@ -444,6 +467,27 @@ export default function TrainingPlan() {
               Revise Inputs &amp; Regenerate
             </Button>
           </div>
+
+          <AlertDialog open={replaceConfirmOpen} onOpenChange={setReplaceConfirmOpen}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Replace Active Training Plan?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  You already have an active training plan: <strong>{activeGoal?.primaryGoal}</strong>.
+                  Accepting this new plan will cancel the current one. Your existing scheduled workouts will remain on the calendar.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Go back</AlertDialogCancel>
+                <AlertDialogAction onClick={() => {
+                  setReplaceConfirmOpen(false);
+                  acceptMutation.mutate();
+                }}>
+                  Yes, replace it
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </AppLayout>
     );

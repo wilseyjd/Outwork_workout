@@ -44,6 +44,22 @@ export interface AcceptPlanResult {
   newExercises: string[];
 }
 
+export interface ActiveTrainingGoal {
+  id: string;
+  primaryGoal: string;
+  goalCategory: string | null;
+  status: string;
+  startDate: string | null;
+  endDate: string | null;
+  targetDate: string | null;
+  timelineDescription: string | null;
+  daysPerWeek: number | null;
+  sessionDurationMinutes: number | null;
+  generatedPlan: PlanResponse | null;
+  currentWeek: number;
+  totalWeeks: number;
+}
+
 export interface IStorage {
   // Circuits
   getCircuits(userId: string): Promise<any[]>;
@@ -173,6 +189,8 @@ export interface IStorage {
   getSessionDurations(userId: string, since?: Date): Promise<{ date: string; durationMin: number }[]>;
   getTrainingHistorySummary(userId: string): Promise<TrainingHistorySummary>;
   acceptTrainingPlan(userId: string, opts: { wizardInputs: AcceptPlanWizardInputs; plan: PlanResponse }): Promise<AcceptPlanResult>;
+  getActiveTrainingGoal(userId: string): Promise<ActiveTrainingGoal | null>;
+  cancelActiveTrainingPlan(userId: string, opts: { removeFutureWorkouts: boolean }): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1511,6 +1529,17 @@ export class DatabaseStorage implements IStorage {
     let trainingGoalId = '';
 
     await db.transaction(async (tx) => {
+      // Cancel any existing active plan
+      const [existingGoal] = await tx.select({ id: trainingGoals.id })
+        .from(trainingGoals)
+        .where(and(eq(trainingGoals.userId, userId), eq(trainingGoals.status, "active")))
+        .limit(1);
+      if (existingGoal) {
+        await tx.update(trainingGoals)
+          .set({ status: "cancelled", updatedAt: new Date() })
+          .where(eq(trainingGoals.id, existingGoal.id));
+      }
+
       // Create new (unmatched) exercises
       for (const name of newExerciseNames) {
         const lower = name.toLowerCase();
@@ -1621,6 +1650,67 @@ export class DatabaseStorage implements IStorage {
       scheduleCount,
       newExercises: newExerciseNames,
     };
+  }
+
+  async getActiveTrainingGoal(userId: string): Promise<ActiveTrainingGoal | null> {
+    const [goal] = await db.select()
+      .from(trainingGoals)
+      .where(and(eq(trainingGoals.userId, userId), eq(trainingGoals.status, "active")))
+      .limit(1);
+
+    if (!goal) return null;
+
+    const plan = goal.generatedPlan as PlanResponse | null;
+    const totalWeeks = plan?.overallStructure?.totalWeeks ?? 0;
+
+    let currentWeek = 1;
+    if (goal.startDate) {
+      const start = new Date(goal.startDate);
+      const now = new Date();
+      const diffMs = now.getTime() - start.getTime();
+      const diffWeeks = Math.floor(diffMs / (7 * 24 * 60 * 60 * 1000));
+      currentWeek = Math.max(1, Math.min(diffWeeks + 1, totalWeeks || 1));
+    }
+
+    return {
+      id: goal.id,
+      primaryGoal: goal.primaryGoal,
+      goalCategory: goal.goalCategory,
+      status: goal.status,
+      startDate: goal.startDate,
+      endDate: goal.endDate,
+      targetDate: goal.targetDate,
+      timelineDescription: goal.timelineDescription,
+      daysPerWeek: goal.daysPerWeek,
+      sessionDurationMinutes: goal.sessionDurationMinutes,
+      generatedPlan: plan,
+      currentWeek,
+      totalWeeks,
+    };
+  }
+
+  async cancelActiveTrainingPlan(userId: string, opts: { removeFutureWorkouts: boolean }): Promise<void> {
+    const [goal] = await db.select({ id: trainingGoals.id })
+      .from(trainingGoals)
+      .where(and(eq(trainingGoals.userId, userId), eq(trainingGoals.status, "active")))
+      .limit(1);
+
+    if (!goal) return;
+
+    if (opts.removeFutureWorkouts) {
+      const today = new Date().toISOString().split('T')[0];
+      await db.delete(workoutSchedule)
+        .where(and(
+          eq(workoutSchedule.userId, userId),
+          eq(workoutSchedule.trainingGoalId, goal.id),
+          gte(workoutSchedule.scheduledDate, today),
+          eq(workoutSchedule.status, "planned"),
+        ));
+    }
+
+    await db.update(trainingGoals)
+      .set({ status: "cancelled", updatedAt: new Date() })
+      .where(eq(trainingGoals.id, goal.id));
   }
 }
 
