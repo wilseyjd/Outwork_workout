@@ -1,11 +1,12 @@
 import { db } from "./db";
 import { eq, desc, and, gte, lte, sql, or, inArray, not } from "drizzle-orm";
-import type { TrainingHistorySummary } from "./ai/types";
+import type { TrainingHistorySummary, PlanResponse } from "./ai/types";
 import {
   exercises, hiddenSystemExercises, workoutTemplates, workoutTemplateExercises, plannedSets,
   workoutSchedule, workoutSessions, sessionExercises, performedSets,
   supplements, supplementSchedule, supplementLogs, bodyWeightLogs,
   circuits, circuitExercises, hiddenSystemCircuits,
+  trainingGoals, trainingGoalTemplates,
   type Exercise, type InsertExercise,
   type Circuit, type InsertCircuit,
   type CircuitExercise, type InsertCircuitExercise,
@@ -21,6 +22,27 @@ import {
   type SupplementLog, type InsertSupplementLog,
   type BodyWeightLog, type InsertBodyWeightLog,
 } from "../shared/schema";
+
+export interface AcceptPlanWizardInputs {
+  primaryGoal: string;
+  goalCategory?: string;
+  secondaryGoals?: string[];
+  targetDate?: string;
+  timelineDescription?: string;
+  daysPerWeek: number;
+  sessionDurationMinutes: number;
+  equipmentType: string;
+  avoidances?: string;
+  additionalContext?: string;
+}
+
+export interface AcceptPlanResult {
+  trainingGoalId: string;
+  conflictCount: number;
+  templateCount: number;
+  scheduleCount: number;
+  newExercises: string[];
+}
 
 export interface IStorage {
   // Circuits
@@ -150,6 +172,7 @@ export interface IStorage {
   getVolumeByCategory(userId: string, since?: Date): Promise<{ category: string; volume: number }[]>;
   getSessionDurations(userId: string, since?: Date): Promise<{ date: string; durationMin: number }[]>;
   getTrainingHistorySummary(userId: string): Promise<TrainingHistorySummary>;
+  acceptTrainingPlan(userId: string, opts: { wizardInputs: AcceptPlanWizardInputs; plan: PlanResponse }): Promise<AcceptPlanResult>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1393,6 +1416,210 @@ export class DatabaseStorage implements IStorage {
       workoutsLast90Days: Number(countRow?.count) || 0,
       topExercises: topExercisesRows.map(r => ({ name: r.name, totalSets: Number(r.totalSets) })),
       recentPRs,
+    };
+  }
+
+  async acceptTrainingPlan(
+    userId: string,
+    opts: { wizardInputs: AcceptPlanWizardInputs; plan: PlanResponse }
+  ): Promise<AcceptPlanResult> {
+    const { wizardInputs, plan } = opts;
+
+    // Compute week start: next Monday from today (or today if today is Monday)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const daysUntilMonday = (8 - today.getDay()) % 7;
+    const weekStart = new Date(today);
+    weekStart.setDate(today.getDate() + daysUntilMonday);
+
+    // Map dayOfWeek string → offset from Monday
+    const DAY_OFFSETS: Record<string, number> = {
+      monday: 0, tuesday: 1, wednesday: 2, thursday: 3,
+      friday: 4, saturday: 5, sunday: 6,
+    };
+
+    // Compute all schedule dates from the plan
+    const scheduleEntries = plan.scheduleMap.map(entry => {
+      const offset = DAY_OFFSETS[entry.dayOfWeek.toLowerCase()] ?? 0;
+      const d = new Date(weekStart);
+      d.setDate(d.getDate() + (entry.weekNumber - 1) * 7 + offset);
+      return { templateName: entry.templateName, date: d.toISOString().split('T')[0] };
+    });
+
+    const planStartDate = scheduleEntries.reduce((min, e) => e.date < min ? e.date : min, scheduleEntries[0].date);
+    const planEndDate = scheduleEntries.reduce((max, e) => e.date > max ? e.date : max, scheduleEntries[0].date);
+
+    // Count existing schedule entries in the plan date range (conflicts)
+    const existingInRange = await db.select({ id: workoutSchedule.id })
+      .from(workoutSchedule)
+      .where(and(
+        eq(workoutSchedule.userId, userId),
+        gte(workoutSchedule.scheduledDate, planStartDate),
+        lte(workoutSchedule.scheduledDate, planEndDate)
+      ));
+    const conflictCount = existingInRange.length;
+
+    // Get user's exercise library for name matching
+    const userExercises = await this.getExercises(userId);
+
+    // Match each unique exercise name to the user's library
+    const allExerciseNamesRaw = plan.workoutTemplates.flatMap(t => t.exercises.map(e => e.exerciseName));
+    const allExerciseNames = allExerciseNamesRaw.filter((n, i) => allExerciseNamesRaw.indexOf(n) === i);
+    const exerciseIdMap = new Map<string, string>(); // exerciseName → exerciseId
+    const newExerciseNames: string[] = [];
+
+    for (const name of allExerciseNames) {
+      const normalized = name.trim().toLowerCase();
+      const match =
+        userExercises.find(e => e.name.trim().toLowerCase() === normalized) ??
+        userExercises.find(e => {
+          const en = e.name.trim().toLowerCase();
+          return en.includes(normalized) || normalized.includes(en);
+        });
+      if (match) {
+        exerciseIdMap.set(name, match.id);
+      } else {
+        newExerciseNames.push(name);
+      }
+    }
+
+    // Get last performance for already-matched exercises to seed weights
+    const matchedIds = Array.from(exerciseIdMap.values());
+    const lastPerf = matchedIds.length > 0 ? await this.getLastPerformance(userId, matchedIds) : {};
+
+    // Compute median working-set weight per exercise
+    const historyWeightMap = new Map<string, number | null>();
+    for (const [exerciseId, sets] of Object.entries(lastPerf)) {
+      const workingWeights = sets
+        .filter(s => !s.isWarmup && s.actualWeight != null)
+        .map(s => Number(s.actualWeight))
+        .sort((a, b) => a - b);
+      if (workingWeights.length > 0) {
+        const mid = Math.floor(workingWeights.length / 2);
+        const median = workingWeights.length % 2 !== 0
+          ? workingWeights[mid]
+          : (workingWeights[mid - 1] + workingWeights[mid]) / 2;
+        historyWeightMap.set(exerciseId, median);
+      } else {
+        historyWeightMap.set(exerciseId, null);
+      }
+    }
+
+    const templateNamesInPlan = new Set(plan.workoutTemplates.map(t => t.name));
+    const scheduleCount = scheduleEntries.filter(e => templateNamesInPlan.has(e.templateName)).length;
+
+    let trainingGoalId = '';
+
+    await db.transaction(async (tx) => {
+      // Create new (unmatched) exercises
+      for (const name of newExerciseNames) {
+        const lower = name.toLowerCase();
+        let trackingType: 'weight_reps' | 'time' | 'distance_time' = 'weight_reps';
+        if (/\b(run|jog|sprint|row|cycle|bike|swim)\b/.test(lower)) trackingType = 'distance_time';
+        else if (/\b(plank|hold|hang|wall sit|dead hang)\b/.test(lower)) trackingType = 'time';
+
+        const defaultTracking =
+          trackingType === 'time' ? { weight: false, reps: false, time: true, distance: false } :
+          trackingType === 'distance_time' ? { weight: false, reps: false, time: true, distance: true } :
+          { weight: true, reps: true, time: false, distance: false };
+
+        const titleCased = name.replace(/\b\w/g, c => c.toUpperCase());
+        const [newEx] = await tx.insert(exercises).values({
+          userId,
+          name: titleCased,
+          isSystem: false,
+          defaultTracking,
+        }).returning();
+        exerciseIdMap.set(name, newEx.id);
+      }
+
+      // Insert training goal record
+      const [goal] = await tx.insert(trainingGoals).values({
+        userId,
+        status: 'active',
+        primaryGoal: wizardInputs.primaryGoal,
+        goalCategory: wizardInputs.goalCategory,
+        secondaryGoals: wizardInputs.secondaryGoals,
+        targetDate: wizardInputs.targetDate,
+        timelineDescription: wizardInputs.timelineDescription,
+        daysPerWeek: wizardInputs.daysPerWeek,
+        sessionDurationMinutes: wizardInputs.sessionDurationMinutes,
+        equipmentType: wizardInputs.equipmentType,
+        avoidances: wizardInputs.avoidances,
+        additionalContext: wizardInputs.additionalContext,
+        generatedPlan: plan as unknown,
+        startDate: planStartDate,
+        endDate: planEndDate,
+      }).returning();
+      trainingGoalId = goal.id;
+
+      // Create workout templates, template exercises, planned sets
+      const templateIdMap = new Map<string, string>();
+      for (const templateSpec of plan.workoutTemplates) {
+        const [template] = await tx.insert(workoutTemplates).values({
+          userId,
+          name: templateSpec.name,
+        }).returning();
+        templateIdMap.set(templateSpec.name, template.id);
+
+        for (let exIdx = 0; exIdx < templateSpec.exercises.length; exIdx++) {
+          const exSpec = templateSpec.exercises[exIdx];
+          const exerciseId = exerciseIdMap.get(exSpec.exerciseName)!;
+
+          const [te] = await tx.insert(workoutTemplateExercises).values({
+            userId,
+            templateId: template.id,
+            exerciseId,
+            position: exIdx + 1,
+          }).returning();
+
+          const historyWeight = historyWeightMap.get(exerciseId) ?? null;
+
+          for (let setIdx = 0; setIdx < exSpec.sets.length; setIdx++) {
+            const setSpec = exSpec.sets[setIdx];
+            let targetWeight: string | null = null;
+            if (historyWeight != null && historyWeight > 0) {
+              targetWeight = String(Math.round(historyWeight));
+            } else if (setSpec.weight != null && setSpec.weight > 0) {
+              targetWeight = String(setSpec.weight);
+            }
+
+            await tx.insert(plannedSets).values({
+              userId,
+              templateExerciseId: te.id,
+              setNumber: setIdx + 1,
+              targetReps: setSpec.reps ?? null,
+              targetWeight,
+              restSeconds: setSpec.rest ?? null,
+              isWarmup: setSpec.warmup ?? false,
+            });
+          }
+        }
+
+        // Link template to training goal
+        await tx.insert(trainingGoalTemplates).values({
+          trainingGoalId: goal.id,
+          templateId: template.id,
+        });
+
+        // Schedule entries for this template
+        for (const entry of scheduleEntries.filter(e => e.templateName === templateSpec.name)) {
+          await tx.insert(workoutSchedule).values({
+            userId,
+            templateId: template.id,
+            scheduledDate: entry.date,
+            trainingGoalId: goal.id,
+          });
+        }
+      }
+    });
+
+    return {
+      trainingGoalId,
+      conflictCount,
+      templateCount: plan.workoutTemplates.length,
+      scheduleCount,
+      newExercises: newExerciseNames,
     };
   }
 }

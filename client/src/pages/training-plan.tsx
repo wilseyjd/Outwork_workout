@@ -65,6 +65,14 @@ interface FormData {
   additionalContext: string;
 }
 
+interface AcceptResponse {
+  trainingGoalId: string;
+  conflictCount: number;
+  templateCount: number;
+  scheduleCount: number;
+  newExercises: string[];
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const INITIAL_FORM: FormData = {
@@ -122,11 +130,17 @@ const LOADING_MESSAGES = [
   "Finalizing your plan...",
 ];
 
+const ACCEPTING_MESSAGES = [
+  "Building your templates...",
+  "Populating your calendar...",
+  "Applying your performance history...",
+];
+
 const TOTAL_STEPS = 4;
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type PageMode = "wizard" | "loading" | "review";
+type PageMode = "wizard" | "loading" | "accepting" | "review";
 
 export default function TrainingPlan() {
   const [, navigate] = useLocation();
@@ -140,9 +154,10 @@ export default function TrainingPlan() {
   const [loadingMsgIdx, setLoadingMsgIdx] = useState(0);
 
   useEffect(() => {
-    if (mode !== "loading") return;
+    if (mode !== "loading" && mode !== "accepting") return;
+    const messages = mode === "accepting" ? ACCEPTING_MESSAGES : LOADING_MESSAGES;
     const interval = setInterval(() => {
-      setLoadingMsgIdx(i => (i + 1) % LOADING_MESSAGES.length);
+      setLoadingMsgIdx(i => (i + 1) % messages.length);
     }, 2500);
     return () => clearInterval(interval);
   }, [mode]);
@@ -179,6 +194,50 @@ export default function TrainingPlan() {
     },
   });
 
+  const acceptMutation = useMutation({
+    mutationFn: () => {
+      if (!plan) throw new Error("No plan to accept");
+      return apiRequest<AcceptResponse>("POST", "/api/training-plan/accept", {
+        primaryGoal: form.primaryGoal,
+        goalCategory: form.goalCategory || undefined,
+        secondaryGoals: form.secondaryGoals.length > 0 ? form.secondaryGoals : undefined,
+        targetDate: form.targetDate || undefined,
+        timelineDescription: form.timelineDescription || undefined,
+        daysPerWeek: form.daysPerWeek,
+        sessionDurationMinutes: form.sessionDurationMinutes,
+        equipmentType: form.equipmentType,
+        avoidances: form.avoidances || undefined,
+        additionalContext: form.additionalContext || undefined,
+        plan,
+      });
+    },
+    onMutate: () => {
+      setMode("accepting");
+      setLoadingMsgIdx(0);
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Training plan is active!",
+        description: `${data.scheduleCount} workouts scheduled across ${plan?.overallStructure.totalWeeks ?? "?"} weeks.`,
+      });
+      if (data.conflictCount > 0) {
+        toast({
+          title: `${data.conflictCount} scheduling conflict${data.conflictCount > 1 ? "s" : ""}`,
+          description: "Some dates already have workouts — reschedule them from the calendar if needed.",
+        });
+      }
+      navigate("/");
+    },
+    onError: (error: Error) => {
+      setMode("review");
+      toast({
+        title: "Acceptance failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   function addSecondaryGoal() {
     const trimmed = secondaryGoalInput.trim();
     if (!trimmed || form.secondaryGoals.length >= 3) return;
@@ -200,8 +259,10 @@ export default function TrainingPlan() {
     }
   }
 
-  // ─── Loading screen ────────────────────────────────────────────────────────
-  if (mode === "loading") {
+  // ─── Loading screens ───────────────────────────────────────────────────────
+  if (mode === "loading" || mode === "accepting") {
+    const messages = mode === "accepting" ? ACCEPTING_MESSAGES : LOADING_MESSAGES;
+    const heading = mode === "accepting" ? "Activating your plan" : "Creating your plan";
     return (
       <AppLayout>
         <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6 text-center">
@@ -209,8 +270,8 @@ export default function TrainingPlan() {
             <Sparkles className="w-8 h-8 text-primary animate-pulse" />
           </div>
           <div>
-            <h2 className="text-xl font-semibold mb-2">Creating your plan</h2>
-            <p className="text-muted-foreground text-sm">{LOADING_MESSAGES[loadingMsgIdx]}</p>
+            <h2 className="text-xl font-semibold mb-2">{heading}</h2>
+            <p className="text-muted-foreground text-sm">{messages[loadingMsgIdx]}</p>
           </div>
           <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
         </div>
@@ -361,9 +422,14 @@ export default function TrainingPlan() {
           <div className="space-y-2 pb-4">
             <Button
               className="w-full"
-              disabled
-              title="Plan acceptance coming soon"
+              onClick={() => acceptMutation.mutate()}
+              disabled={acceptMutation.isPending}
             >
+              {acceptMutation.isPending ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Sparkles className="w-4 h-4 mr-2" />
+              )}
               Accept &amp; Build Plan
             </Button>
             <Button
@@ -373,6 +439,7 @@ export default function TrainingPlan() {
                 setMode("wizard");
                 setPlan(null);
               }}
+              disabled={acceptMutation.isPending}
             >
               Revise Inputs &amp; Regenerate
             </Button>

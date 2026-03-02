@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated, getUserId } from "./auth";
 import { generateTrainingPlan } from "./ai";
+import { planResponseSchema } from "./ai/types";
 import { z, ZodSchema } from "zod";
 import {
   insertExerciseSchema,
@@ -1032,6 +1033,36 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("Error generating training plan:", error);
       res.status(500).json({ message: error.message || "Failed to generate training plan" });
+    }
+  });
+
+  const acceptPlanBodySchema = z.object({
+    primaryGoal: z.string().min(1),
+    goalCategory: z.string().optional(),
+    secondaryGoals: z.array(z.string()).optional(),
+    targetDate: z.string().optional(),
+    timelineDescription: z.string().optional(),
+    daysPerWeek: z.number().int().min(1).max(7),
+    sessionDurationMinutes: z.number().int().min(15).max(180),
+    equipmentType: z.string().min(1),
+    avoidances: z.string().optional(),
+    additionalContext: z.string().optional(),
+    plan: planResponseSchema,
+  });
+
+  app.post("/api/training-plan/accept", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const validation = validateBody(acceptPlanBodySchema, req.body);
+      if (!validation.success) {
+        return res.status(400).json({ message: validation.error });
+      }
+      const { plan, ...wizardInputs } = validation.data;
+      const result = await storage.acceptTrainingPlan(userId, { wizardInputs, plan });
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error accepting training plan:", error);
+      res.status(500).json({ message: error.message || "Failed to accept training plan" });
     }
   });
 
