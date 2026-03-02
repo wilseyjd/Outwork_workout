@@ -6,8 +6,7 @@ export async function generateWithOpenAI(input: PlanInput): Promise<PlanResponse
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 
   const completion = await client.chat.completions.create({
-    model: "gpt-4o",
-    temperature: 0.4,
+    model: "gpt-5-nano",
     response_format: { type: "json_object" },
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
