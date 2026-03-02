@@ -1425,17 +1425,17 @@ export class DatabaseStorage implements IStorage {
   ): Promise<AcceptPlanResult> {
     const { wizardInputs, plan } = opts;
 
-    // Compute week start: next Monday from today (or today if today is Monday)
+    // Compute week start: next Sunday from today (or today if today is Sunday)
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const daysUntilMonday = (8 - today.getDay()) % 7;
+    const daysUntilSunday = (7 - today.getDay()) % 7;
     const weekStart = new Date(today);
-    weekStart.setDate(today.getDate() + daysUntilMonday);
+    weekStart.setDate(today.getDate() + daysUntilSunday);
 
-    // Map dayOfWeek string → offset from Monday
+    // Map dayOfWeek string → offset from Sunday
     const DAY_OFFSETS: Record<string, number> = {
-      monday: 0, tuesday: 1, wednesday: 2, thursday: 3,
-      friday: 4, saturday: 5, sunday: 6,
+      sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
+      thursday: 4, friday: 5, saturday: 6,
     };
 
     // Compute all schedule dates from the plan
