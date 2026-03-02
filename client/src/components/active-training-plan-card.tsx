@@ -14,7 +14,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Target, ChevronRight, X, Calendar, Clock, Dumbbell } from "lucide-react";
+import { Target, ChevronRight, X, Calendar, Dumbbell, Sparkles } from "lucide-react";
 import { Link } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -49,9 +49,11 @@ interface ActiveTrainingGoal {
 interface ActiveTrainingPlanCardProps {
   /** "today" shows an inline card with a sheet opener; "plan" shows a compact card */
   mode?: "today" | "plan";
+  /** Show a "Create Training Plan" CTA when no plan is active */
+  showCta?: boolean;
 }
 
-export function ActiveTrainingPlanCard({ mode = "today" }: ActiveTrainingPlanCardProps) {
+export function ActiveTrainingPlanCard({ mode = "today", showCta = false }: ActiveTrainingPlanCardProps) {
   const { toast } = useToast();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
@@ -81,7 +83,29 @@ export function ActiveTrainingPlanCard({ mode = "today" }: ActiveTrainingPlanCar
     },
   });
 
-  if (isLoading || !activeGoal) return null;
+  if (isLoading) return null;
+
+  if (!activeGoal) {
+    if (!showCta) return null;
+    return (
+      <Card className="p-4 border-dashed" data-testid="card-create-training-plan">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
+            <Sparkles className="h-5 w-5 text-muted-foreground" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-medium text-sm">No active training plan</p>
+            <p className="text-xs text-muted-foreground">Let AI build a personalised program for your goal</p>
+          </div>
+          <Button size="sm" asChild>
+            <Link href="/training-plan">
+              Create Plan
+            </Link>
+          </Button>
+        </div>
+      </Card>
+    );
+  }
 
   const plan = activeGoal.generatedPlan;
 

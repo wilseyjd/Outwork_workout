@@ -127,7 +127,7 @@ export default function Today() {
           </Card>
         )}
 
-        <ActiveTrainingPlanCard mode="today" />
+        <ActiveTrainingPlanCard mode="today" showCta />
 
         <div className="space-y-3">
           <div className="flex items-center justify-between">

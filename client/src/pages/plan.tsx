@@ -172,7 +172,7 @@ export default function Plan() {
           </div>
         </div>
 
-        <ActiveTrainingPlanCard mode="plan" />
+        <ActiveTrainingPlanCard mode="plan" showCta />
 
         <Tabs defaultValue="templates" className="space-y-4">
           <TabsList className="grid w-full grid-cols-2">
