@@ -7,16 +7,20 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ListSkeleton } from "@/components/loading-skeleton";
 import { EmptyState } from "@/components/empty-state";
-import { Plus, Pill, Check, Clock, MoreVertical, Edit, Trash2 } from "lucide-react";
+import { Plus, Pill, Check, Clock, MoreVertical, Edit, Trash2, ChevronDown } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { format, isToday, parseISO } from "date-fns";
+import { format } from "date-fns";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Supplement, SupplementLog, SupplementScheduleItem } from "@shared/schema";
+
+const SUPPLEMENT_UNITS = ["g", "mg", "oz"] as const;
+type SupplementUnit = typeof SUPPLEMENT_UNITS[number];
 
 interface SupplementWithSchedule extends Supplement {
   schedules?: SupplementScheduleItem[];
@@ -30,10 +34,14 @@ export default function Supplements() {
   const [editingLog, setEditingLog] = useState<SupplementLog | null>(null);
   const [formName, setFormName] = useState("");
   const [formDose, setFormDose] = useState("");
+  const [formUnit, setFormUnit] = useState<SupplementUnit>("g");
   const [formNotes, setFormNotes] = useState("");
   const [logFormDose, setLogFormDose] = useState("");
   const [logFormDate, setLogFormDate] = useState("");
   const [logFormTime, setLogFormTime] = useState("");
+  // Quick-log dialog state
+  const [loggingSupplementId, setLoggingSupplementId] = useState<string | null>(null);
+  const [logQuickDose, setLogQuickDose] = useState("");
 
   const { data: supplements, isLoading: supplementsLoading } = useQuery<SupplementWithSchedule[]>({
     queryKey: ["/api/supplements"],
@@ -48,7 +56,7 @@ export default function Supplements() {
   });
 
   const createSupplementMutation = useMutation({
-    mutationFn: async (data: { name: string; defaultDose?: string; notes?: string }) => {
+    mutationFn: async (data: { name: string; unit: SupplementUnit; defaultDose?: string; notes?: string }) => {
       return await apiRequest("POST", "/api/supplements", data);
     },
     onSuccess: () => {
@@ -62,7 +70,7 @@ export default function Supplements() {
   });
 
   const updateSupplementMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: { name: string; defaultDose?: string; notes?: string } }) => {
+    mutationFn: async ({ id, data }: { id: string; data: { name: string; unit: SupplementUnit; defaultDose?: string; notes?: string } }) => {
       return await apiRequest("PATCH", `/api/supplements/${id}`, data);
     },
     onSuccess: () => {
@@ -99,6 +107,8 @@ export default function Supplements() {
       queryClient.invalidateQueries({ queryKey: ["/api/supplements"] });
       queryClient.invalidateQueries({ queryKey: ["/api/supplements/logs"] });
       queryClient.invalidateQueries({ queryKey: ["/api/supplements/logs/today"] });
+      setLoggingSupplementId(null);
+      setLogQuickDose("");
       toast({ title: "Intake logged" });
     },
     onError: () => {
@@ -140,6 +150,7 @@ export default function Supplements() {
     setEditingSupplement(null);
     setFormName("");
     setFormDose("");
+    setFormUnit("g");
     setFormNotes("");
   };
 
@@ -171,27 +182,54 @@ export default function Supplements() {
     setEditingSupplement(supplement);
     setFormName(supplement.name);
     setFormDose(supplement.defaultDose || "");
+    setFormUnit((supplement.unit as SupplementUnit) || "g");
     setFormNotes(supplement.notes || "");
+  };
+
+  const openLogDialog = (supplement: Supplement) => {
+    setLoggingSupplementId(supplement.id);
+    setLogQuickDose(supplement.defaultDose || "");
   };
 
   const handleSave = () => {
     if (editingSupplement) {
       updateSupplementMutation.mutate({
         id: editingSupplement.id,
-        data: { name: formName, defaultDose: formDose || undefined, notes: formNotes || undefined },
+        data: { name: formName, unit: formUnit, defaultDose: formDose || undefined, notes: formNotes || undefined },
       });
     } else {
       createSupplementMutation.mutate({
         name: formName,
+        unit: formUnit,
         defaultDose: formDose || undefined,
         notes: formNotes || undefined,
       });
     }
   };
 
+  const handleQuickLog = () => {
+    if (!loggingSupplementId || !logQuickDose.trim()) return;
+    const supplement = supplements?.find(s => s.id === loggingSupplementId);
+    const doseWithUnit = supplement ? `${logQuickDose} ${supplement.unit}` : logQuickDose;
+    logIntakeMutation.mutate({ supplementId: loggingSupplementId, dose: doseWithUnit });
+  };
+
+  const logDefaultDose = (supplement: Supplement) => {
+    if (!supplement.defaultDose) {
+      openLogDialog(supplement);
+      return;
+    }
+    logIntakeMutation.mutate({
+      supplementId: supplement.id,
+      dose: `${supplement.defaultDose} ${supplement.unit}`,
+    });
+  };
+
   const isLoggedToday = (supplementId: string) => {
     return todayLogs?.some(log => log.supplementId === supplementId);
   };
+
+  const loggingSupplement = supplements?.find(s => s.id === loggingSupplementId);
 
   return (
     <AppLayout>
@@ -200,6 +238,42 @@ export default function Supplements() {
           <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">Supplements</h1>
           <p className="text-muted-foreground text-sm mt-1">Track your supplement intake</p>
         </div>
+
+        {/* Quick-log dialog */}
+        <Dialog open={!!loggingSupplementId} onOpenChange={(open) => { if (!open) { setLoggingSupplementId(null); setLogQuickDose(""); } }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Log {loggingSupplement?.name}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 pt-4">
+              <div className="space-y-2">
+                <Label htmlFor="quick-log-dose">Dose</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="quick-log-dose"
+                    placeholder="Amount"
+                    value={logQuickDose}
+                    onChange={(e) => setLogQuickDose(e.target.value)}
+                    className="flex-1"
+                    data-testid="input-quick-log-dose"
+                  />
+                  <Badge variant="secondary" className="text-sm px-3 py-1.5 shrink-0">
+                    {loggingSupplement?.unit || "g"}
+                  </Badge>
+                </div>
+              </div>
+              <Button
+                className="w-full"
+                onClick={handleQuickLog}
+                disabled={!logQuickDose.trim() || logIntakeMutation.isPending}
+                data-testid="button-confirm-log"
+              >
+                <Check className="h-4 w-4 mr-2" />
+                Log Intake
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         <Tabs defaultValue="today" className="space-y-4">
           <TabsList className="grid w-full grid-cols-2">
@@ -231,14 +305,31 @@ export default function Supplements() {
                     />
                   </div>
                   <div className="space-y-2">
+                    <Label htmlFor="supp-unit">Unit</Label>
+                    <Select value={formUnit} onValueChange={(v) => setFormUnit(v as SupplementUnit)}>
+                      <SelectTrigger id="supp-unit" data-testid="select-supplement-unit">
+                        <SelectValue placeholder="Select unit" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {SUPPLEMENT_UNITS.map((u) => (
+                          <SelectItem key={u} value={u}>{u}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
                     <Label htmlFor="supp-dose">Default Dose</Label>
-                    <Input
-                      id="supp-dose"
-                      placeholder="e.g., 5g, 2000 IU"
-                      value={formDose}
-                      onChange={(e) => setFormDose(e.target.value)}
-                      data-testid="input-supplement-dose"
-                    />
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id="supp-dose"
+                        placeholder="e.g., 5"
+                        value={formDose}
+                        onChange={(e) => setFormDose(e.target.value)}
+                        className="flex-1"
+                        data-testid="input-supplement-dose"
+                      />
+                      <Badge variant="secondary" className="text-sm px-3 py-1.5 shrink-0">{formUnit}</Badge>
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="supp-notes">Notes (optional)</Label>
@@ -250,8 +341,8 @@ export default function Supplements() {
                       data-testid="input-supplement-notes"
                     />
                   </div>
-                  <Button 
-                    className="w-full" 
+                  <Button
+                    className="w-full"
                     onClick={handleSave}
                     disabled={!formName.trim() || createSupplementMutation.isPending || updateSupplementMutation.isPending}
                     data-testid="button-save-supplement"
@@ -269,16 +360,16 @@ export default function Supplements() {
                 {supplements.map((supplement) => {
                   const logged = isLoggedToday(supplement.id);
                   return (
-                    <Card 
-                      key={supplement.id} 
+                    <Card
+                      key={supplement.id}
                       className={`p-4 transition-colors ${logged ? "bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-900" : ""}`}
                       data-testid={`card-supplement-${supplement.id}`}
                     >
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-3 min-w-0">
                           <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                            logged 
-                              ? "bg-green-100 dark:bg-green-900/30" 
+                            logged
+                              ? "bg-green-100 dark:bg-green-900/30"
                               : "bg-muted"
                           }`}>
                             {logged ? (
@@ -290,25 +381,43 @@ export default function Supplements() {
                           <div className="min-w-0">
                             <p className="font-medium truncate">{supplement.name}</p>
                             {supplement.defaultDose && (
-                              <p className="text-sm text-muted-foreground">{supplement.defaultDose}</p>
+                              <p className="text-sm text-muted-foreground">
+                                {supplement.defaultDose} {supplement.unit}
+                              </p>
                             )}
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          {!logged && (
+                          <div className="flex">
                             <Button
                               size="sm"
-                              onClick={() => logIntakeMutation.mutate({
-                                supplementId: supplement.id,
-                                dose: supplement.defaultDose || "1 serving",
-                              })}
+                              className="rounded-r-none"
+                              onClick={() => logDefaultDose(supplement)}
                               disabled={logIntakeMutation.isPending}
                               data-testid={`button-log-${supplement.id}`}
                             >
                               <Check className="h-4 w-4 mr-1" />
                               Log
                             </Button>
-                          )}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="rounded-l-none border-l-0 px-2"
+                                  disabled={logIntakeMutation.isPending}
+                                  data-testid={`button-log-options-${supplement.id}`}
+                                >
+                                  <ChevronDown className="h-3 w-3" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => openLogDialog(supplement)}>
+                                  Modify
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button variant="ghost" size="icon" data-testid={`button-menu-${supplement.id}`}>
@@ -320,7 +429,7 @@ export default function Supplements() {
                                 <Edit className="h-4 w-4 mr-2" />
                                 Edit
                               </DropdownMenuItem>
-                              <DropdownMenuItem 
+                              <DropdownMenuItem
                                 onClick={() => deleteSupplementMutation.mutate(supplement.id)}
                                 className="text-destructive focus:text-destructive"
                               >
@@ -386,8 +495,8 @@ export default function Supplements() {
                       />
                     </div>
                   </div>
-                  <Button 
-                    className="w-full" 
+                  <Button
+                    className="w-full"
                     onClick={handleSaveLog}
                     disabled={!logFormDose.trim() || !logFormDate || !logFormTime || updateLogMutation.isPending}
                     data-testid="button-save-log"
@@ -431,7 +540,7 @@ export default function Supplements() {
                               <Edit className="h-4 w-4 mr-2" />
                               Edit
                             </DropdownMenuItem>
-                            <DropdownMenuItem 
+                            <DropdownMenuItem
                               onClick={() => deleteLogMutation.mutate(log.id)}
                               className="text-destructive focus:text-destructive"
                             >
