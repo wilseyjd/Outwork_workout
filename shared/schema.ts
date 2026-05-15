@@ -196,6 +196,7 @@ export const supplements = pgTable("supplements", {
   userId: varchar("user_id").notNull(),
   name: text("name").notNull(),
   defaultDose: text("default_dose"),
+  unit: text("unit").notNull().default("g"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -359,7 +360,9 @@ export const insertWorkoutScheduleSchema = createInsertSchema(workoutSchedule).o
 export const insertWorkoutSessionSchema = createInsertSchema(workoutSessions).omit({ id: true, createdAt: true });
 export const insertSessionExerciseSchema = createInsertSchema(sessionExercises).omit({ id: true, createdAt: true });
 export const insertPerformedSetSchema = createInsertSchema(performedSets).omit({ id: true, createdAt: true });
-export const insertSupplementSchema = createInsertSchema(supplements).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertSupplementSchema = createInsertSchema(supplements)
+  .omit({ id: true, createdAt: true, updatedAt: true })
+  .extend({ unit: z.enum(["oz", "g", "mg"]) });
 export const insertSupplementScheduleSchema = createInsertSchema(supplementSchedule).omit({ id: true, createdAt: true });
 export const insertSupplementLogSchema = createInsertSchema(supplementLogs).omit({ id: true });
 export const insertBodyWeightLogSchema = createInsertSchema(bodyWeightLogs).omit({ id: true, loggedAt: true });
