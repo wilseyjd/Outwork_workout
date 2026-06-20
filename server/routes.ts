@@ -2,6 +2,8 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated, getUserId } from "./auth";
+import { generateTrainingPlan } from "./ai";
+import { planResponseSchema } from "./ai/types";
 import { z, ZodSchema } from "zod";
 import {
   insertExerciseSchema,
@@ -983,6 +985,107 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching exercise analytics:", error);
       res.status(500).json({ message: "Failed to fetch exercise analytics" });
+    }
+  });
+
+  // ─── Training Plan ────────────────────────────────────────────────────────
+
+  const generatePlanBodySchema = z.object({
+    primaryGoal: z.string().min(1),
+    goalCategory: z.string().optional(),
+    secondaryGoals: z.array(z.string()).optional(),
+    targetDate: z.string().optional(),
+    timelineDescription: z.string().optional(),
+    daysPerWeek: z.number().int().min(1).max(7),
+    sessionDurationMinutes: z.number().int().min(15).max(180),
+    equipmentType: z.string().min(1),
+    avoidances: z.string().optional(),
+    additionalContext: z.string().optional(),
+  });
+
+  app.post("/api/training-plan/generate", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const validation = validateBody(generatePlanBodySchema, req.body);
+      if (!validation.success) {
+        return res.status(400).json({ message: validation.error });
+      }
+      const body = validation.data;
+
+      const [allExercises, trainingHistory] = await Promise.all([
+        storage.getExercises(userId),
+        storage.getTrainingHistorySummary(userId),
+      ]);
+
+      const exerciseLibrary = allExercises.map(ex => {
+        const dt = ex.defaultTracking as { weight: boolean; reps: boolean; time: boolean; distance: boolean } | null;
+        let trackingType: "weight_reps" | "time" | "distance_time" | "distance_only" = "weight_reps";
+        if (dt) {
+          if (dt.distance && dt.time) trackingType = "distance_time";
+          else if (dt.distance) trackingType = "distance_only";
+          else if (dt.time) trackingType = "time";
+        }
+        return { name: ex.name, category: ex.category, trackingType };
+      });
+
+      const plan = await generateTrainingPlan({ ...body, exerciseLibrary, trainingHistory });
+      res.json(plan);
+    } catch (error: any) {
+      console.error("Error generating training plan:", error);
+      res.status(500).json({ message: error.message || "Failed to generate training plan" });
+    }
+  });
+
+  const acceptPlanBodySchema = z.object({
+    primaryGoal: z.string().min(1),
+    goalCategory: z.string().optional(),
+    secondaryGoals: z.array(z.string()).optional(),
+    targetDate: z.string().optional(),
+    timelineDescription: z.string().optional(),
+    daysPerWeek: z.number().int().min(1).max(7),
+    sessionDurationMinutes: z.number().int().min(15).max(180),
+    equipmentType: z.string().min(1),
+    avoidances: z.string().optional(),
+    additionalContext: z.string().optional(),
+    plan: planResponseSchema,
+  });
+
+  app.post("/api/training-plan/accept", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const validation = validateBody(acceptPlanBodySchema, req.body);
+      if (!validation.success) {
+        return res.status(400).json({ message: validation.error });
+      }
+      const { plan, ...wizardInputs } = validation.data;
+      const result = await storage.acceptTrainingPlan(userId, { wizardInputs, plan });
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error accepting training plan:", error);
+      res.status(500).json({ message: error.message || "Failed to accept training plan" });
+    }
+  });
+
+  app.get("/api/training-plan/active", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const goal = await storage.getActiveTrainingGoal(userId);
+      res.json(goal);
+    } catch (error: any) {
+      console.error("Error fetching active training goal:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch active training goal" });
+    }
+  });
+
+  app.delete("/api/training-plan/active", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const removeFutureWorkouts = req.query.removeFutureWorkouts === "true";
+      await storage.cancelActiveTrainingPlan(userId, { removeFutureWorkouts });
+      res.json({ ok: true });
+    } catch (error: any) {
+      console.error("Error cancelling training plan:", error);
+      res.status(500).json({ message: error.message || "Failed to cancel training plan" });
     }
   });
 

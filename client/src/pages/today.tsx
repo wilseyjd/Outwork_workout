@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import { Calendar, Play, CheckCircle2, XCircle, Clock, Dumbbell, Plus, Search } from "lucide-react";
 import { Link, useLocation } from "wouter";
+import { ActiveTrainingPlanCard } from "@/components/active-training-plan-card";
 import { format } from "date-fns";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -125,6 +126,8 @@ export default function Today() {
             </div>
           </Card>
         )}
+
+        <ActiveTrainingPlanCard mode="today" showCta />
 
         <div className="space-y-3">
           <div className="flex items-center justify-between">

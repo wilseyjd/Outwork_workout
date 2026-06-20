@@ -13,7 +13,7 @@ export default function Terms() {
         </Button>
 
         <h1 className="text-3xl font-serif font-bold mb-2">Terms of Use</h1>
-        <p className="text-sm text-muted-foreground mb-8">Last updated: February 9, 2026</p>
+        <p className="text-sm text-muted-foreground mb-8">Last updated: March 2, 2026</p>
 
         <div className="prose prose-sm dark:prose-invert max-w-none space-y-6">
           <section>
@@ -80,7 +80,28 @@ export default function Terms() {
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold mb-2">10. Changes to These Terms</h2>
+            <h2 className="text-xl font-semibold mb-2">10. AI-Generated Training Plans</h2>
+            <p className="text-muted-foreground leading-relaxed mb-3">
+              Outwork includes an AI-powered training planner that generates personalized workout plans based on your stated goals and fitness history. By using this feature, you acknowledge and agree to the following:
+            </p>
+            <ul className="list-disc pl-6 text-muted-foreground space-y-2">
+              <li>
+                <strong className="text-foreground">Not professional advice.</strong> AI-generated training plans are for informational and personal use only. They do not constitute professional medical, fitness, or nutritional advice. You should consult a qualified healthcare or fitness professional before beginning any new exercise program, particularly if you have a medical condition, injury, or other health concern.
+              </li>
+              <li>
+                <strong className="text-foreground">Third-party AI providers.</strong> When you use the training planner, your stated fitness goals, a summary of your exercise library, and up to 90 days of your training history are transmitted to a third-party AI provider to generate your plan. The default provider is Google Gemini; this may be configured to Anthropic Claude or OpenAI. Each provider operates under its own terms of service and privacy policy.
+              </li>
+              <li>
+                <strong className="text-foreground">No guarantee of accuracy.</strong> AI-generated plans may contain errors, omissions, or recommendations that are unsuitable for your individual health status, fitness level, or goals. Outwork does not warrant the accuracy, completeness, or appropriateness of any AI-generated content.
+              </li>
+              <li>
+                <strong className="text-foreground">Your responsibility.</strong> You are solely responsible for how you use any AI-generated training plan. Outwork and its creators are not liable for any injury, health issue, or adverse outcome resulting from following an AI-generated plan.
+              </li>
+            </ul>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-semibold mb-2">11. Changes to These Terms</h2>
             <p className="text-muted-foreground leading-relaxed">
               We may update these Terms of Use from time to time. If we make material changes, you will be asked to review and accept the updated terms before continuing to use the service.
             </p>

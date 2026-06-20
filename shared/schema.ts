@@ -9,6 +9,7 @@ export * from "./models/auth";
 // Enums
 export const scheduleStatusEnum = pgEnum("schedule_status", ["planned", "completed", "skipped"]);
 export const supplementScheduleTypeEnum = pgEnum("supplement_schedule_type", ["daily", "weekly", "custom"]);
+export const trainingGoalStatusEnum = pgEnum("training_goal_status", ["active", "completed", "cancelled"]);
 
 // Exercises table - user's exercise bank
 export const exercises = pgTable("exercises", {
@@ -134,10 +135,12 @@ export const workoutSchedule = pgTable("workout_schedule", {
   templateId: varchar("template_id").notNull(),
   scheduledDate: date("scheduled_date").notNull(),
   status: scheduleStatusEnum("status").default("planned"),
+  trainingGoalId: varchar("training_goal_id"), // Nullable — set when created by an AI training plan
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("schedule_user_date_idx").on(table.userId, table.scheduledDate),
   index("schedule_template_idx").on(table.templateId),
+  index("schedule_training_goal_idx").on(table.trainingGoalId),
 ]);
 
 // Workout sessions - performed workouts
@@ -234,6 +237,40 @@ export const supplementLogs = pgTable("supplement_logs", {
   index("supplement_logs_supplement_idx").on(table.supplementId, table.takenAt),
 ]);
 
+// Training goals - AI-generated training plans
+export const trainingGoals = pgTable("training_goals", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  status: trainingGoalStatusEnum("status").notNull().default("active"),
+  primaryGoal: text("primary_goal").notNull(),
+  secondaryGoals: text("secondary_goals").array(),
+  goalCategory: text("goal_category"),
+  targetDate: date("target_date"),
+  timelineDescription: text("timeline_description"),
+  daysPerWeek: integer("days_per_week"),
+  sessionDurationMinutes: integer("session_duration_minutes"),
+  equipmentType: text("equipment_type"),
+  avoidances: text("avoidances"),
+  additionalContext: text("additional_context"),
+  generatedPlan: jsonb("generated_plan"),
+  startDate: date("start_date"),
+  endDate: date("end_date"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("training_goals_user_status_idx").on(table.userId, table.status),
+]);
+
+// Training goal templates - join table linking a goal to its generated workout templates
+export const trainingGoalTemplates = pgTable("training_goal_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  trainingGoalId: varchar("training_goal_id").notNull(),
+  templateId: varchar("template_id").notNull(),
+}, (table) => [
+  index("training_goal_templates_goal_idx").on(table.trainingGoalId),
+  index("training_goal_templates_template_idx").on(table.templateId),
+]);
+
 // Body weight logs
 export const bodyWeightLogs = pgTable("body_weight_logs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -271,6 +308,7 @@ export const workoutTemplatesRelations = relations(workoutTemplates, ({ many }) 
   templateExercises: many(workoutTemplateExercises),
   schedules: many(workoutSchedule),
   sessions: many(workoutSessions),
+  trainingGoalTemplates: many(trainingGoalTemplates),
 }));
 
 export const workoutTemplateExercisesRelations = relations(workoutTemplateExercises, ({ one, many }) => ({
@@ -296,6 +334,10 @@ export const workoutScheduleRelations = relations(workoutSchedule, ({ one }) => 
   template: one(workoutTemplates, {
     fields: [workoutSchedule.templateId],
     references: [workoutTemplates.id],
+  }),
+  trainingGoal: one(trainingGoals, {
+    fields: [workoutSchedule.trainingGoalId],
+    references: [trainingGoals.id],
   }),
 }));
 
@@ -327,6 +369,22 @@ export const performedSetsRelations = relations(performedSets, ({ one }) => ({
   sessionExercise: one(sessionExercises, {
     fields: [performedSets.sessionExerciseId],
     references: [sessionExercises.id],
+  }),
+}));
+
+export const trainingGoalsRelations = relations(trainingGoals, ({ many }) => ({
+  trainingGoalTemplates: many(trainingGoalTemplates),
+  schedules: many(workoutSchedule),
+}));
+
+export const trainingGoalTemplatesRelations = relations(trainingGoalTemplates, ({ one }) => ({
+  trainingGoal: one(trainingGoals, {
+    fields: [trainingGoalTemplates.trainingGoalId],
+    references: [trainingGoals.id],
+  }),
+  template: one(workoutTemplates, {
+    fields: [trainingGoalTemplates.templateId],
+    references: [workoutTemplates.id],
   }),
 }));
 
@@ -366,6 +424,8 @@ export const insertSupplementSchema = createInsertSchema(supplements)
 export const insertSupplementScheduleSchema = createInsertSchema(supplementSchedule).omit({ id: true, createdAt: true });
 export const insertSupplementLogSchema = createInsertSchema(supplementLogs).omit({ id: true });
 export const insertBodyWeightLogSchema = createInsertSchema(bodyWeightLogs).omit({ id: true, loggedAt: true });
+export const insertTrainingGoalSchema = createInsertSchema(trainingGoals).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertTrainingGoalTemplateSchema = createInsertSchema(trainingGoalTemplates).omit({ id: true });
 
 // Types
 export type Circuit = typeof circuits.$inferSelect;
@@ -396,3 +456,7 @@ export type SupplementLog = typeof supplementLogs.$inferSelect;
 export type InsertSupplementLog = z.infer<typeof insertSupplementLogSchema>;
 export type BodyWeightLog = typeof bodyWeightLogs.$inferSelect;
 export type InsertBodyWeightLog = z.infer<typeof insertBodyWeightLogSchema>;
+export type TrainingGoal = typeof trainingGoals.$inferSelect;
+export type InsertTrainingGoal = z.infer<typeof insertTrainingGoalSchema>;
+export type TrainingGoalTemplate = typeof trainingGoalTemplates.$inferSelect;
+export type InsertTrainingGoalTemplate = z.infer<typeof insertTrainingGoalTemplateSchema>;
